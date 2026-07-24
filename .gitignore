@@ -2,6 +2,7 @@
 /.test
 *.test
 
+dist
 
 # Logs
 logs
