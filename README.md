@@ -205,10 +205,16 @@ module.exports = {
 ## Комнданды сборки:
 
 ```bash
-# Только текущая платформа (то, на которой ты сейчас работаешь)
-npm run make
+# Только windows (x32 и x64)
+npm run make:both
 
-# Все настроенные makers для ТЕКУЩЕЙ платформы
+# Только windows x32
+npm run make:x32
+
+# Только windows x64
+npm run make:x64
+
+# Все настроенные makers для windows платформы
 npx electron-forge make
 
 # ─── Конкретные платформы ──────────────────────────────────
