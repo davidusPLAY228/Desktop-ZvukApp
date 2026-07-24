@@ -1,1 +1,28 @@
-﻿
+﻿name: Build Linux
+on:
+  workflow_dispatch:  # запуск вручную из вкладки Actions
+  push:
+    tags: ['v*']      # или автоматически по тегу
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - name: Build AppImage + deb + rpm
+        run: npx electron-builder --linux AppImage deb rpm
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ZvukApp-linux
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.rpm
