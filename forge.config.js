@@ -5,14 +5,28 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 module.exports = {
   packagerConfig: {
     asar: true,
-    icon:"music-player",
+    icon: "assets/icons/music-player.ico",
+    // Файлы, которые должны лежать ВНЕ asar-архива — как реальные файлы.
+    // Иконка трея должна быть реальным файлом, чтобы Windows API мог её прочитать.
+    // После сборки она будет в: resources/music-player.ico
+    extraResource: [
+      "assets/icons/music-player.ico",
+      "assets/icons/music-player 512x512.png",
+      "assets/icons/music-player.png",
+      "assets/icons/music-player.icns",
+      "music-player.ico"
+    ],
+    // Глобально указываем, какие файлы НЕ упаковывать в asar (альтернативный способ)
+    // asarUnpack: [
+    //   "music-player.ico",
+    // ],
   },
   publishers:[
     {
       name:"@electron-forge/publisher-github",
       config:{
         repository:{
-          owner: "Bassbarlow",
+          owner: "davidusPLAY228",
           name: "Desktop-ZvukApp"
         },
         authToken: process.env.GITHUB_TOKEN,
@@ -26,6 +40,7 @@ module.exports = {
       config: {
         setupIcon: 'music-player.ico',
         certificateFile: './zvuk_app.pfx',
+        iconUrl: 'https://raw.githubusercontent.com/davidusPLAY228/Desktop-ZvukApp/main/assets/icons/music-player.ico',
         certificatePassword: process.env.CERT_PASS,
       },
     },
@@ -36,7 +51,7 @@ module.exports = {
     {
       name: '@electron-forge/maker-deb',
       config: {
-        icon:'music-player.png',
+        icon:'assets/icons/music-player.png',
       },
     },
     {
