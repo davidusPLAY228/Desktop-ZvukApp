@@ -4,7 +4,7 @@
 
 > Данная версия является <span style="color: #ffa42c">**авторской версией приложения ZvukApp 0.0.6**</span>, авторская версия разработана: https://github.com/davidusPLAY228
 <br>
-> **P.S:** Первоначальный владелец приложения: https://github.com/Bassbarlow/
+> P.S: Первоначальный владелец приложения: https://github.com/Bassbarlow/
 
 ## Что нового
 
