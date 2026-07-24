@@ -118,7 +118,7 @@ const createWindow = () => {
     height: 900,
     minWidth: 600,
     minHeight: 400,
-    title: 'ZvukApp (v0.0.7A) - Авторский билд от Haciba9020',
+    title: 'ZvukApp (v0.0.8A) - Авторский билд от Haciba9020',
     icon: path.join(__dirname, 'assets/icons/music-player.ico'),
     webPreferences: {
       webviewTag: true,
@@ -132,7 +132,7 @@ const createWindow = () => {
 
   win.on('page-title-updated', (evt) => {
     evt.preventDefault();
-    win.setTitle('ZvukApp (v0.0.7A) - Авторский билд от Haciba9020');
+    win.setTitle('ZvukApp (v0.0.8A) - Авторский билд от Haciba9020');
   });
 
   win.loadFile('index.html');
@@ -151,7 +151,7 @@ const createWindow = () => {
       event.preventDefault();
       win.hide();
       showBalloon(
-        'ZvukApp v0.0.7A',
+        'ZvukApp v0.0.8A',
         'Приложение свёрнуто в трей. Музыка продолжает играть.'
       );
     }
