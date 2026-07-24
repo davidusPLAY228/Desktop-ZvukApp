@@ -1,13 +1,33 @@
-﻿# ZvukApp — Multi-Tab Browser UI
+<div align="center">
+
+# <img width="32" height="32" alt="music-player" src="https://github.com/user-attachments/assets/bd15fa19-0f9c-4786-94f6-b7182c254451" /> ZvukApp — Multi-Tab Browser UI
+
+**Универсальная интерактивная панель инструментов для Windows на PowerShell**
+
+Быстрый доступ к вашим скриптам, утилитам и программам из единого меню —
+с поддержкой ярлыков, иконок, приватных инструментов и контекстного меню.
+
+![version](https://img.shields.io/badge/version-v0.0.8A-green?style=flat-square)
+![platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?style=flat-square&logo=windows)
+![license](https://img.shields.io/badge/license-ICS-green?style=flat-square)
+![status](https://img.shields.io/badge/status-release-green?style=flat-square)
+
+</div>
+
+---
+
+<div align="center">
 
 Обновлённая версия Electron-приложения **ZvukApp** с браузерной панелью навигации и поддержкой вкладок.
 
-> Данная версия является <span style="color: #ffa42c">**авторской версией приложения ZvukApp 0.0.6**</span>, авторская версия разработана: https://github.com/davidusPLAY228
-<br>
+> Данная версия является <span style="color: #ffa42c">**авторской версией приложения ZvukApp 0.0.6**</span>, авторская версия разработана: https://github.com/davidusPLAY228 <br>
 > P.S: Первоначальный владелец приложения: https://github.com/Bassbarlow/
 
-## Что нового
+</div
+---
+<br>
 
+# Что нового:
 ### 🧭 Панель навигации (как в браузере)
 
 Сверху окна добавлена панель с кнопками:
@@ -215,3 +235,4 @@ npx electron-forge make --platform linux
 @electron-forge/maker-snap       (Linux Snap)
 @electron-forge/maker-flatpak    (Linux Flatpak)
 ```
+</div>
