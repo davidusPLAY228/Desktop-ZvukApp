@@ -1,0 +1,55 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' 'unsafe-inline'; script-src 'self'"
+    />
+    <title>ZvukApp</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!-- ============ ВЕРХНЯЯ ПАНЕЛЬ НАВИГАЦИИ ============ -->
+    <div id="navbar">
+      <button id="btn-back" class="nav-btn" title="Назад" disabled>
+        <svg viewBox="0 0 24 24" width="20" height="20">
+          <path fill="currentColor" d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
+        </svg>
+      </button>
+      <button id="btn-forward" class="nav-btn" title="Вперёд" disabled>
+        <svg viewBox="0 0 24 24" width="20" height="20">
+          <path fill="currentColor" d="M8.59 16.59L10 18l6-6-6-6-1.41 1.41L13.17 12z"/>
+        </svg>
+      </button>
+      <button id="btn-reload" class="nav-btn" title="Перезагрузить">
+        <svg viewBox="0 0 24 24" width="20" height="20">
+          <path fill="currentColor" d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+        </svg>
+      </button>
+
+      <input id="url-bar" type="text" placeholder="Поиск или адрес" spellcheck="false" />
+
+      <button id="btn-home" class="nav-btn" title="Домашняя страница">
+        <svg viewBox="0 0 24 24" width="20" height="20">
+          <path fill="currentColor" d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- ============ ПАНЕЛЬ ВКЛАДОК ============ -->
+    <div id="tabstrip">
+      <div id="tabs-container"></div>
+      <button id="btn-new-tab" class="nav-btn tab-new" title="Новая вкладка (Ctrl+T)">
+        <svg viewBox="0 0 24 24" width="18" height="18">
+          <path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- ============ КОНТЕЙНЕР ДЛЯ ВКЛАДОК (webview) ============ -->
+    <div id="webviews-container"></div>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>
