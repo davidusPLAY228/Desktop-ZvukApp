@@ -16,14 +16,9 @@
 
 ---
 
-<div align="center">
+> При создании использовалось <span style="color: #ffa42c">**приложение ZvukApp 0.0.6**</span> от автора: https://github.com/Bassbarlow/ <br>
+> Переработано и обновлено: https://github.com/davidusPLAY228
 
-Обновлённая версия Electron-приложения **ZvukApp** с браузерной панелью навигации и поддержкой вкладок.
-
-> Данная версия является <span style="color: #ffa42c">**авторской версией приложения ZvukApp 0.0.6**</span>, авторская версия разработана: https://github.com/davidusPLAY228 <br>
-> P.S: Первоначальный владелец приложения: https://github.com/Bassbarlow/
-
-</div
 ---
 <br>
 
