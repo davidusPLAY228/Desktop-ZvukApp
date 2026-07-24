@@ -20,7 +20,7 @@ const createWindow = () => {
     height: 900,
     minWidth: 600,
     minHeight: 400,
-    title: 'ZvukApp',
+    title: 'ZvukApp (v0.0.7A) - Авторский билд от Haciba9020',
     icon: './music-player.ico',
     // ВАЖНО: webview тег должен быть включён явно
     webPreferences: {
@@ -37,7 +37,7 @@ const createWindow = () => {
 
   win.on('page-title-updated', (evt) => {
     evt.preventDefault();
-    win.setTitle('ZvukApp');
+    win.setTitle('ZvukApp (v0.0.7A) - Авторский билд от Haciba9020');
   });
 
   // Загружаем наш UI (не сайт напрямую — UI подгружает сайт во webview)
@@ -49,13 +49,13 @@ const createWindow = () => {
   // (остаётся видно на панели задач).
   // Только показываем всплывающее уведомление через трей.
   win.on('minimize', function () {
-    try {
-      tray.displayBalloon({
-        iconType: 'info',
-        title: 'ZvukApp v0.0.7A',
-        content: 'Приложение свёрнуто. Музыка продолжит играть.',
-      });
-    } catch (_) {}
+    // try {
+    //   tray.displayBalloon({
+    //     iconType: 'info',
+    //     title: 'ZvukApp v0.0.7A',
+    //     content: 'Приложение свёрнуто. Музыка продолжит играть.',
+    //   });
+    // } catch (_) {}
   });
 
   // ============ Поведение при закрытии (кнопка "X") ============
@@ -66,6 +66,13 @@ const createWindow = () => {
     if (!isQuiting) {
       event.preventDefault();
       win.hide();
+      try {
+        tray.displayBalloon({
+          iconType: 'info',
+          title: 'ZvukApp v0.0.7A',
+          content: 'Приложение свёрнуто. Музыка продолжит играть.',
+        });
+      } catch (_) {}
     }
   });
 
