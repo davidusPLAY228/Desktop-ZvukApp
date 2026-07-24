@@ -97,3 +97,121 @@ npm run make       # собрать установщик
 npm run package    # упаковать без создания установщика
 npm run app:dist   # electron-builder
 ```
+# Что делать, если я хочу на Linux?
+
+1. Установить нужные makers
+
+```bash
+npm install --save-dev \
+  @electron-forge/maker-deb \
+  @electron-forge/maker-rpm \
+  @electron-forge/maker-zip
+```
+
+2. Поправьте forge.config.js:
+```js
+
+module.exports = {
+  packagerConfig: {
+    // ВАЖНО для macOS: иконка должна быть .icns, не .ico
+    icon: process.platform === 'darwin' ? './assets/icons/music-player' : './assets/icons/music-player',
+    asar: true,
+    // Для macOS — подпись (если есть developer ID), иначе закомментируйте
+    // osxSign: { identity: 'Developer ID Application: ...' },
+  },
+  makers: [
+    // ─── Windows (то, что у вас уже работает) ───────────────
+    {
+      name: '@electron-forge/maker-squirrel',
+      config: { name: 'ZvukApp' },
+    },
+
+    // ─── macOS: .dmg ─────────────────────────────────────────
+    {
+      name: '@electron-forge/maker-dmg',
+      config: {
+        format: 'ULFO',
+        name: 'ZvukApp',
+        icon: './assets/icons/music-player.icns',   // нужен .icns, не .ico!
+      },
+    },
+
+    // ─── Linux: .deb (Ubuntu/Debian/Mint) ────────────────────
+    {
+      name: '@electron-forge/maker-deb',
+      config: {
+        options: {
+          name: 'zvukapp',
+          productName: 'ZvukApp',
+          maintainer: 'davidusPLAY@yandex.ru',
+          homepage: 'https://github.com/davidusPLAY228',
+          icon: './assets/icons/music-player 512x512.png',          // для deb нужен .png (минимум 512×512)
+          categories: ['AudioVideo', 'Audio', 'Player'],
+          mimeType: ['x-scheme-handler/zvuk'],
+          requires: ['libgtk-3-0', 'libnotify4', 'libnss3', 'libxss1', 'libxtst6'],
+        },
+      },
+    },
+
+    // ─── Linux: .rpm (Fedora/RHEL/openSUSE) ──────────────────
+    {
+      name: '@electron-forge/maker-rpm',
+      config: {
+        options: {
+          name: 'zvukapp',
+          productName: 'ZvukApp',
+          license: 'MIT',
+          icon: './assets/icons/music-player.png',
+          categories: ['AudioVideo', 'Audio', 'Player'],
+          requires: ['gtk3', 'libnotify', 'nss', 'libXScrnSaver', 'libXtst'],
+        },
+      },
+    },
+
+    // ─── Linux: .AppImage (универсальный, без установки) ─────
+    {
+      name: '@electron-forge/maker-appimage',
+      config: {
+        name: 'ZvukApp',
+        icon: './assets/icons/music-player.png',
+        categories: ['AudioVideo'],
+      },
+    },
+  ],
+};
+
+```
+
+## Комнданды сборки:
+
+```bash
+# Только текущая платформа (то, на которой ты сейчас работаешь)
+npm run make
+
+# Все настроенные makers для ТЕКУЩЕЙ платформы
+npx electron-forge make
+
+# ─── Конкретные платформы ──────────────────────────────────
+# macOS (.dmg)
+npx electron-forge make --platform darwin --arch=x64
+npx electron-forge make --platform darwin --arch=arm64   # Apple Silicon (M1/M2/M3)
+
+# Linux .deb, .rpm, .AppImage
+npx electron-forge make --platform linux --arch=x64
+
+# Универсальная сборка Linux (сделает все makers для Linux сразу)
+npx electron-forge make --platform linux
+```
+
+## Makers для других систем:
+```bash
+@electron-forge/maker-squirrel   (Windows .exe)
+@electron-forge/maker-zip        (просто архив)
+@electron-forge/maker-deb        (Linux .deb) 
+@electron-forge/maker-rpm        (Linux .rpm) 
+@electron-forge/maker-dmg        (macOS .dmg)  
+@electron-forge/maker-pkg        (macOS .pkg)
+@electron-forge/maker-wix        (Windows .msi)
+@electron-forge/maker-snap       (Linux Snap)
+@electron-forge/maker-flatpak    (Linux Flatpak)
+```
