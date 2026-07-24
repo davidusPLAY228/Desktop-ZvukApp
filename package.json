@@ -1,5 +1,5 @@
 {
-  "name": "ZvukApp v0.0.7A - Авторский билд от Haciba9020",
+  "name": "ZvukApp",
   "version": "0.0.7",
   "description": "Desktop app to listen music from zvuk.com",
   "main": "main.js",
