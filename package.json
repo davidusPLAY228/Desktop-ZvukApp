@@ -1,12 +1,13 @@
 {
   "name": "ZvukApp",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "Desktop app to listen music from zvuk.com",
   "main": "main.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/davidusPLAY228/Desktop-ZvukApp"
+    "url": "https://github.com/davidusPLAY228/Desktop-ZvukApp.git"
   },
+  "license": "ISC",
   "scripts": {
     "start": "env-cmd -f .env electron-forge start",
     "startforge": "electron-forge start",
@@ -20,10 +21,16 @@
   },
   "build": {
     "appId": "com.Hachiba9020.ZvukApp",
+    "productName": "ZvukApp",
+    "copyright": "Copyright © 2026 Hachiba9020",
     "linux": {
-      "target": ["AppImage"],
+      "target": ["AppImage", "deb", "rpm"],
       "icon": "assets/icons/music-player.png",
-      "category": "AudioVideo"
+      "packageCategory": "AudioVideo",
+      "license": "ISC",
+      "maintainer": "Hachiba9020 <davidusPLAY@yandex.ru>",
+      "desktopName": "zvukapp.desktop",
+      "syncDesktopName": true
     }
   },
   "author": {
@@ -31,7 +38,6 @@
     "email": "davidusPLAY@yandex.ru",
     "url": "https://github.com/davidusPLAY228"
   },
-  "license": "ISC",
   "devDependencies": {
     "@electron-forge/cli": "^7.4.0",
     "@electron-forge/maker-deb": "^7.11.2",

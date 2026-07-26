@@ -1,0 +1,116 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' 'unsafe-inline'; img-src 'self' data: https:; script-src 'self'"
+    />
+    <title>ZvukApp Player</title>
+    <link rel="stylesheet" href="player.css" />
+  </head>
+  <body>
+    <div id="player-root">
+      <!-- ============ ВЕРХНЯЯ ПАНЕЛЬ (свернуть / меню / закрыть) ============ -->
+      <div id="player-header">
+        <button id="btn-close" class="header-btn" title="Закрыть плеер">
+          <svg viewBox="0 0 24 24" width="16" height="16">
+            <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- ============ ОСНОВНАЯ ИНФО-ПАНЕЛЬ ============ -->
+      <div id="player-body">
+        <div class="cover-wrap">
+          <img id="cover" alt="cover" src="" />
+          <div id="cover-placeholder">♪</div>
+        </div>
+
+        <div class="info">
+          <div id="track-title" class="title">Нет трека</div>
+          <div id="track-artist" class="artist">—</div>
+        </div>
+
+        <div class="controls">
+          <button id="btn-prev" class="ctrl-btn" title="Предыдущий">
+            <svg viewBox="0 0 24 24" width="20" height="20">
+              <path fill="currentColor" d="M6 6h2v12H6V6zm3.5 6l8.5 6V6l-8.5 6z"/>
+            </svg>
+          </button>
+          <button id="btn-play" class="ctrl-btn ctrl-btn-main" title="Play/Pause">
+            <!-- Иконка Play по умолчанию, JS поменяет на Pause -->
+            <svg id="icon-play" viewBox="0 0 24 24" width="22" height="22">
+              <path fill="currentColor" d="M8 5v14l11-7z"/>
+            </svg>
+            <svg id="icon-pause" viewBox="0 0 24 24" width="22" height="22" style="display:none">
+              <path fill="currentColor" d="M6 5h4v14H6V5zm8 0h4v14h-4V5z"/>
+            </svg>
+          </button>
+          <button id="btn-next" class="ctrl-btn" title="Следующий">
+            <svg viewBox="0 0 24 24" width="20" height="20">
+              <path fill="currentColor" d="M16 6h2v12h-2V6zm-2.5 6L5 6v12l8.5-6z"/>
+            </svg>
+          </button>
+          <button id="btn-like" class="ctrl-btn" title="В любимые">
+            <svg id="icon-heart" viewBox="0 0 24 24" width="20" height="20">
+              <path fill="none" stroke="currentColor" stroke-width="2"
+                    d="M12 21s-7-4.5-9.5-9C1 9 2.5 5 6.5 5c2 0 3.5 1 5.5 3 2-2 3.5-3 5.5-3 4 0 5.5 4 4 7-2.5 4.5-9.5 9-9.5 9z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- ============ ПРОГРЕСС-БАР ============ -->
+      <div id="progress-wrap">
+        <span id="time-current" class="time">0:00</span>
+        <div id="progress-bar">
+          <div id="progress-fill"></div>
+          <div id="progress-thumb"></div>
+        </div>
+        <span id="time-total" class="time">0:00</span>
+      </div>
+
+      <!-- ============ НИЖНЯЯ ПАНЕЛЬ (громкость / shuffle / repeat / queue / HiFi) ============ -->
+      <div id="player-footer">
+        <div class="footer-section volume-section">
+          <button id="btn-mute" class="footer-btn" title="Без звука">
+            <svg id="icon-vol" viewBox="0 0 24 24" width="16" height="16">
+              <path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
+            </svg>
+            <svg id="icon-mute" viewBox="0 0 24 24" width="16" height="16" style="display:none">
+              <path fill="currentColor" d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
+            </svg>
+          </button>
+          <input id="volume-slider" type="range" min="0" max="100" value="70" />
+        </div>
+
+        <div class="footer-section footer-center">
+          <button id="btn-shuffle" class="footer-btn" title="Перемешать">
+            <svg viewBox="0 0 24 24" width="16" height="16">
+              <path fill="currentColor" d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/>
+            </svg>
+          </button>
+          <button id="btn-repeat" class="footer-btn" title="Повтор">
+            <svg viewBox="0 0 24 24" width="16" height="16">
+              <path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/>
+            </svg>
+          </button>
+          <button id="btn-queue" class="footer-btn" title="Очередь">
+            <svg viewBox="0 0 24 24" width="16" height="16">
+              <path fill="currentColor" d="M3 10h11v2H3v-2zm0-4h11v2H3V6zm0 8h7v2H3v-2zm13 0v6l5-3-5-3z"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="footer-section footer-right">
+          <button id="btn-hifi" class="footer-btn hifi-btn" title="Качество звука">
+            HiFi
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script src="player.js"></script>
+  </body>
+</html>

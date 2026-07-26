@@ -7,7 +7,7 @@
 Быстрый доступ к вашим скриптам, утилитам и программам из единого меню —
 с поддержкой ярлыков, иконок, приватных инструментов и контекстного меню.
 
-![version](https://img.shields.io/badge/version-v0.0.8A-green?style=flat-square)
+![version](https://img.shields.io/badge/version-v0.0.9A-green?style=flat-square)
 ![platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?style=flat-square&logo=windows)
 ![license](https://img.shields.io/badge/license-ISС-green?style=flat-square)
 ![status](https://img.shields.io/badge/status-release-green?style=flat-square)

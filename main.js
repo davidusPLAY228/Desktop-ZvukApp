@@ -1,11 +1,14 @@
-﻿const { app, BrowserWindow, Menu, Tray } = require('electron');
+﻿const { app, BrowserWindow, Menu, Tray, ipcMain } = require('electron');
 const { updateElectronApp, UpdateSourceType } = require('update-electron-app');
 const path = require('path');
 
 updateElectronApp(); // additional configuration options available
 
+const APP_VERSION = 'v0.0.9';
+
 let isQuiting = false;
-let win = null;
+let win = null;          // главное окно (браузер с вкладками)
+let playerWin = null;    // окно мини-плеера
 let tray = null;
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -21,9 +24,8 @@ function createTray() {
 
   try {
     // Иконку ищем в двух местах:
-    //  1) В dev-режиме:   <project>/music-player.ico
+    //  1) В dev-режиме:   <project>/assets/icons/music-player.ico
     //  2) В собранном .exe: resources/music-player.ico (extraResource в forge.config.js)
-    //     В этом случае process.resourcesPath указывает на папку resources/.
     let iconPath;
     const devIconPath = path.join(__dirname, 'assets/icons/music-player.ico');
     const prodIconPath = process.resourcesPath
@@ -35,51 +37,38 @@ function createTray() {
     } else if (require('fs').existsSync(devIconPath)) {
       iconPath = devIconPath;
     } else {
-      // Fallback: иконка внутри asar (Electron умеет читать .ico из asar,
-      // но иногда Windows API возвращает пустую иконку — поэтому мы и
-      // используем extraResource выше)
-      iconPath = devIconPath;
+      // Fallback: иконка в корне проекта (старое расположение)
+      const legacyIconPath = path.join(__dirname, 'music-player.ico');
+      if (require('fs').existsSync(legacyIconPath)) {
+        iconPath = legacyIconPath;
+      } else {
+        iconPath = devIconPath; // пусть будет — будет понятная ошибка в логе
+      }
     }
 
     console.log('[Tray] Загрузка иконки из:', iconPath);
     tray = new Tray(iconPath);
     tray.setToolTip('ZvukApp — нажмите, чтобы открыть');
 
-    const contextMenu = Menu.buildFromTemplate([
-      {
-        label: 'Открыть окно',
-        click: function () {
-          if (!win) return;
-          if (win.isMinimized()) win.restore();
-          win.show();
-          win.focus();
-        },
-      },
-      { type: 'separator' },
-      {
-        label: 'Выход',
-        click: function () {
-          isQuiting = true;
-          app.quit();
-        },
-      },
-    ]);
+    const contextMenu = buildTrayMenu();
     tray.setContextMenu(contextMenu);
 
-    // Один клик по иконке трея — открыть окно
+    // Один клик по иконке трея — открыть главное окно
     tray.on('click', function () {
-      if (!win) return;
-      if (win.isMinimized()) win.restore();
-      win.show();
-      win.focus();
+      if (win) {
+        if (win.isMinimized()) win.restore();
+        win.show();
+        win.focus();
+      }
     });
 
-    // Двойной клик по иконке трея — тоже открыть окно
+    // Двойной клик по иконке трея — тоже открыть главное окно
     tray.on('double-click', function () {
-      if (!win) return;
-      if (win.isMinimized()) win.restore();
-      win.show();
-      win.focus();
+      if (win) {
+        if (win.isMinimized()) win.restore();
+        win.show();
+        win.focus();
+      }
     });
 
     console.log('[Tray] Иконка трея успешно создана');
@@ -87,6 +76,43 @@ function createTray() {
     console.error('[Tray] Не удалось создать иконку трея:', err);
     tray = null;
   }
+}
+
+// ============ Динамическое меню трея ============
+// Перестраиваем меню каждый раз, чтобы менять надпись «Показать/Скрыть плеер»
+function buildTrayMenu() {
+  const playerVisible = !!(playerWin && playerWin.isVisible());
+  return Menu.buildFromTemplate([
+    {
+      label: 'Открыть окно',
+      click: function () {
+        if (!win) return;
+        if (win.isMinimized()) win.restore();
+        win.show();
+        win.focus();
+      },
+    },
+    {
+      id: 'show-player',
+      label: playerVisible ? 'Скрыть плеер' : 'Показать плеер',
+      click: function () {
+        togglePlayerWindow();
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Выход',
+      click: function () {
+        isQuiting = true;
+        app.quit();
+      },
+    },
+  ]);
+}
+
+function refreshTrayMenu() {
+  if (!tray) return;
+  tray.setContextMenu(buildTrayMenu());
 }
 
 // ============ Показ уведомления ============
@@ -107,9 +133,8 @@ function showBalloon(title, content) {
   }
 }
 
+// ============ Создание главного окна ============
 const createWindow = () => {
-  console.log(process.env.CERT_PASS);
-
   // ВАЖНО: создаём tray ДО окна, чтобы он был доступен в обработчиках
   createTray();
 
@@ -118,31 +143,30 @@ const createWindow = () => {
     height: 900,
     minWidth: 600,
     minHeight: 400,
-    title: 'ZvukApp (v0.0.8A) - Авторский билд от Haciba9020',
+    title: `ZvukApp (${APP_VERSION}) - Авторский билд от Haciba9020`,
     icon: path.join(__dirname, 'assets/icons/music-player.ico'),
     webPreferences: {
       webviewTag: true,
       contextIsolation: true,
       nodeIntegration: false,
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'components/preload.js'),
     },
   });
+
 
   Menu.setApplicationMenu(null);
 
   win.on('page-title-updated', (evt) => {
     evt.preventDefault();
-    win.setTitle('ZvukApp (v0.0.8A) - Авторский билд от Haciba9020');
+    win.setTitle(`ZvukApp (${APP_VERSION}) - Авторский билд от Haciba9020`);
   });
 
-  win.loadFile('index.html');
+  // ГЛАВНОЕ: loadFile указывает на components/index.html
+  win.loadFile(path.join(__dirname, 'components/index.html'));
 
   // ============ Поведение при сворачивании (кнопка "-") ============
   win.on('minimize', function () {
-    // showBalloon(
-    //   'ZvukApp v0.0.7A',
-    //   'Приложение свёрнуто. Музыка продолжит играть.'
-    // );
+    // ничего не делаем — окно остаётся на панели задач
   });
 
   // ============ Поведение при закрытии (кнопка "X") ============
@@ -151,13 +175,126 @@ const createWindow = () => {
       event.preventDefault();
       win.hide();
       showBalloon(
-        'ZvukApp v0.0.8A',
+        `ZvukApp ${APP_VERSION}`,
         'Приложение свёрнуто в трей. Музыка продолжает играть.'
       );
     }
   });
 };
 
+// ============ Создание окна плеера ============
+function createPlayerWindow() {
+  if (playerWin) return playerWin;
+
+  playerWin = new BrowserWindow({
+    width: 480,
+    height: 180,
+    minWidth: 380,
+    minHeight: 160,
+    maxWidth: 720,
+    maxHeight: 220,
+    resizable: true,
+    frame: false,                  // без рамок — рисуем свои кнопки
+    transparent: true,             // для скругления углов
+    show: false,                   // покажем через togglePlayerWindow()
+    skipTaskbar: true,             // не дублируем в панели задач
+    alwaysOnTop: false,
+    title: 'ZvukApp Player',
+    icon: path.join(__dirname, 'assets/icons/music-player.ico'),
+    parent: win || undefined,      // дочернее к главному (если оно есть)
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: path.join(__dirname, 'components/audio-controller/player-preload.js'),
+    },
+  });
+
+  playerWin.loadFile(path.join(__dirname, 'components/audio-controller/player.html'));
+
+  // Крестик плеера = скрыть (не закрывать)
+  playerWin.on('close', (event) => {
+    if (!isQuiting) {
+      event.preventDefault();
+      playerWin.hide();
+      refreshTrayMenu();
+    }
+  });
+
+  playerWin.on('hide', () => {
+    refreshTrayMenu();
+  });
+
+  playerWin.on('show', () => {
+    refreshTrayMenu();
+  });
+
+  return playerWin;
+}
+
+// ============ Показать/скрыть плеер ============
+function togglePlayerWindow() {
+  if (!playerWin) {
+    playerWin = createPlayerWindow();
+  }
+
+  if (playerWin.isVisible()) {
+    playerWin.hide();
+  } else {
+    playerWin.show();
+    playerWin.focus();
+  }
+  refreshTrayMenu();
+}
+
+// ============ IPC: команды от плеера ============
+ipcMain.on('player:close', () => {
+  if (playerWin) playerWin.hide();
+  refreshTrayMenu();
+});
+
+ipcMain.on('player:minimize', () => {
+  if (playerWin) playerWin.minimize();
+});
+
+ipcMain.on('player:toggle-play',    () => sendToZvukPlayer('toggle-play'));
+ipcMain.on('player:next',           () => sendToZvukPlayer('next'));
+ipcMain.on('player:prev',           () => sendToZvukPlayer('prev'));
+ipcMain.on('player:toggle-like',    () => sendToZvukPlayer('toggle-like'));
+ipcMain.on('player:toggle-shuffle', () => sendToZvukPlayer('toggle-shuffle'));
+ipcMain.on('player:toggle-repeat',  () => sendToZvukPlayer('toggle-repeat'));
+ipcMain.on('player:open-queue',     () => {
+  // Кнопка «Очередь» в мини-плеере → открыть полноэкранный плеер zvuk.com
+  // (клик по Cover_playButton на обложке). Раньше этот эффект был у паузы —
+  // теперь он здесь, где ему и место.
+  sendToZvukPlayer('open-player');
+  // Также показать главное окно, чтобы пользователь видел открывшийся плеер сайта
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  }
+});
+ipcMain.on('player:toggle-hifi', () => sendToZvukPlayer('toggle-hifi'));
+ipcMain.on('player:seek', (_e, percent)        => sendToZvukPlayer('seek', percent));
+ipcMain.on('player:set-volume', (_e, percent)  => sendToZvukPlayer('set-volume', percent));
+
+// ============ Мост к активному webview zvuk.com ============
+// В renderer-е главного окна есть webview. Через IPC 'zvuk:command' рендерер
+// получает команды и forwarding-ает их в активный <webview> через executeJavaScript.
+function sendToZvukPlayer(command, payload) {
+  if (!win) return;
+  // renderer сам найдёт активный webview и вызовет нужный код
+  win.webContents.send('zvuk:command', { command, payload });
+}
+
+// ============ Приём состояния трека от renderer-а → форвард в плеер ============
+ipcMain.on('zvuk:state', (_e, state) => {
+  if (playerWin && !playerWin.isDestroyed()) {
+    playerWin.webContents.send('player:state', state);
+  }
+});
+
+// ============ Запуск ============
 if (!gotTheLock) {
   app.quit();
 } else {
