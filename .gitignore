@@ -1,6 +1,7 @@
 # by Hachiba9020 custom:
 /.test
 *.test
+**/changelog
 
 dist
 
@@ -136,3 +137,4 @@ dist
 .pnp.*
 zvuk_app
 zvuk_app.pub
+zvuk_app.pfx

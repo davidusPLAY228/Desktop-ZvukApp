@@ -39,9 +39,11 @@ module.exports = {
       name: '@electron-forge/maker-squirrel',
       config: {
         setupIcon: 'music-player.ico',
-        certificateFile: './zvuk_app.pfx',
         iconUrl: 'https://raw.githubusercontent.com/davidusPLAY228/Desktop-ZvukApp/main/assets/icons/music-player.ico',
-        certificatePassword: process.env.CERT_PASS,
+        ...(process.env.WINDOWS_CERT_FILE && process.env.CERT_PASS ? {
+          certificateFile: process.env.WINDOWS_CERT_FILE,
+          certificatePassword: process.env.CERT_PASS,
+        } : {}),
       },
     },
     {

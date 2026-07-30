@@ -1,24 +1,7 @@
-﻿/**
- * ZvukApp — preload главного окна
- * Безопасный мост между renderer-ом и main-процессом.
- */
-
 const { contextBridge, ipcRenderer } = require('electron');
-
 contextBridge.exposeInMainWorld('zvukApp', {
-  /**
-   * Приём команды от плеера → нужно forwarding в активный <webview>.
-   * payload: { command: string, payload?: any }
-   */
-  onCommand: (callback) => {
-    const handler = (_e, payload) => callback(payload);
-    ipcRenderer.on('zvuk:command', handler);
-    return () => ipcRenderer.removeListener('zvuk:command', handler);
-  },
-
-  /**
-   * Отправить состояние трека в main-процесс (форвардится в окно плеера).
-   * state: { title, artist, coverUrl, isPlaying, position, duration, volume, isLiked, ... }
-   */
-  sendState: (state) => ipcRenderer.send('zvuk:state', state),
+  onCommand(callback) { const listener = (_event, command) => callback(command); ipcRenderer.on('zvuk:command', listener); return () => ipcRenderer.removeListener('zvuk:command', listener); },
+  onPollNow(callback) { const listener = () => callback(); ipcRenderer.on('zvuk:poll-now', listener); return () => ipcRenderer.removeListener('zvuk:poll-now', listener); },
+  sendState(state) { ipcRenderer.send('zvuk:state', state); },
+  reportDebug(data) { ipcRenderer.send('zvuk:debug', data); },
 });

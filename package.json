@@ -12,6 +12,7 @@
     "start": "env-cmd -f .env electron-forge start",
     "startforge": "electron-forge start",
     "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "electron-forge make --platform win32 --arch x64",
     "package": "env-cmd -f .env electron-forge package",
     "app:dir": "electron-builder --dir",
     "app:dist": "electron-builder",
