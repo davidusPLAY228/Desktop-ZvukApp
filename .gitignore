@@ -6,9 +6,10 @@
 **/*.bat
 *.bat
 claudecode.bat
-.claude/
-.codex/
-
+.claude
+.codex
+/.claude
+/.codex
 dist
 
 # Logs
