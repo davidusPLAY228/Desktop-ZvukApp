@@ -126,8 +126,12 @@ window.miniPlayer.onState((state) => {
     position: state.position,
     duration: state.duration,
     isPlaying: state.isPlaying,
-    hasPosition: !!state.position,
-    hasDuration: !!state.duration,
+    durationSource: state._debug?.durationSource || 'none',
+    pct: state._debug?.pct,
+    apiDuration: state._debug?.apiDuration,
+    rateCount: state._debug?.rateCount,
+    trackChanged: state._debug?.trackChanged,
+    seekDetected: state._debug?.seekDetected,
     debugInfo: state._debug
   });
 
@@ -139,6 +143,31 @@ window.miniPlayer.onState((state) => {
   const wasPlaying = isLocalPlaying;
   isLocalPlaying = !!state.isPlaying;
   lastServerUpdate = Date.now();
+
+  // Seek detection (in-page seek via rAF jump detection in zvuk-bridge)
+  if (state._debug?.seekDetected) {
+    console.log('[Timeline] SEEK detected on Zvuk page, recalibrating from', localPosition, 'to', state.position);
+    localPosition = state.position;
+    lastServerUpdate = Date.now();
+  }
+
+  // Track change detection (by flag from title MutationObserver + title comparison)
+  if (state._debug?.trackChanged) {
+    console.log('[Timeline] TRACK CHANGED (via observer flag)');
+    localPosition = 0;
+    stopLocalTimer();
+    if (isLocalPlaying && localDuration > 0) startLocalTimer();
+  }
+  if (state.title && window._prevTrackTitle && state.title !== window._prevTrackTitle) {
+    console.log('[Timeline] TRACK CHANGED from "' + window._prevTrackTitle + '" to "' + state.title + '"', { prevTitle: window._prevTrackTitle, newTitle: state.title });
+    window._prevTrackTitle = state.title;
+    localPosition = 0;
+    stopLocalTimer();
+    if (isLocalPlaying && localDuration > 0) startLocalTimer();
+  } else if (state.title && !window._prevTrackTitle) {
+    window._prevTrackTitle = state.title;
+    console.log('[Timeline] Initial track title set:', state.title);
+  }
 
   console.log('[Timeline] Local state updated:', {
     localPosition,

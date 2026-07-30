@@ -1,12 +1,21 @@
 /**
  * Гостевой скрипт для webview zvuk.com.
- * Управление — через DOM-события; чтение состояния — DOM + CSS + метаданные.
+ * Генерирует JS-строку для executeJavaScript().
+ *
+ * Архитектура:
+ * - Первый вызов: устанавливает постоянную инфраструктуру (перехватчики сети,
+ *   MutationObserver, rAF-цикл) в window.__zvuk.
+ * - Каждый вызов: читает из window.__zvuk + делает свежий снимок DOM.
+ * - Длительность: API > JSON-LD > meta-теги > CSS-оценка
+ * - Позиция: длительность × CSS --width / 100
  */
+
 function buildZvukGuestScript(command, value) {
-  const cmdLiteral = command == null ? 'null' : JSON.stringify(String(command));
-  const valLiteral = value == null ? 'null' : JSON.stringify(value);
+  const cmdLiteral = JSON.stringify(command == null ? null : String(command));
+  const valLiteral = JSON.stringify(value == null ? null : value);
 
   return `(() => {
+    "use strict";
     const CMD = ${cmdLiteral};
     const VAL = ${valLiteral};
 
@@ -22,149 +31,418 @@ function buildZvukGuestScript(command, value) {
       duration: 0,
       volume: null,
       isShuffle: false,
+      isHiFi: false,
       repeatMode: 'off',
       error: null,
+      _debug: {},
     };
-
     if (!state.available) return state;
 
-    /** Корень плеера */
+    // ============================================================
+    // Глубокий поиск длительности в JSON-ответах API
+    // ============================================================
+    function findDurationDeep(obj, depth) {
+      if (!depth) depth = 0;
+      if (depth > 5 || !obj || typeof obj !== 'object') return 0;
+      for (const key of ['duration','durationMs','duration_sec','length','totalTime','trackLength','seconds']) {
+        const v = obj[key];
+        if (typeof v === 'number' && v > 10 && v < 7200) return Math.round(v);
+        if (typeof v === 'number' && key === 'durationMs' && v > 10000) return Math.round(v / 1000);
+        if (typeof v === 'string' && /^\\d+$/.test(v)) {
+          const n = parseInt(v, 10);
+          if (n > 10 && n < 7200) return n;
+        }
+      }
+      for (const key of Object.keys(obj)) {
+        const v = obj[key];
+        if (typeof v === 'object' && v) {
+          const r = findDurationDeep(v, depth + 1);
+          if (r) return r;
+        }
+        if (Array.isArray(v)) {
+          for (const item of v) {
+            if (typeof item === 'object' && item) {
+              const r = findDurationDeep(item, depth + 1);
+              if (r) return r;
+            }
+          }
+        }
+      }
+      return 0;
+    }
+
+    // ============================================================
+    // Постоянное хранилище (живёт между вызовами executeJavaScript)
+    // ============================================================
+    if (!window.__zvuk) {
+      window.__zvuk = {
+        _installed: false,
+        _apiDuration: 0,
+        _apiDurationAt: 0,
+        _lastPct: 0,
+        _lastPctAt: 0,
+        _lastRafPct: 0,
+        _lastRafPctAt: 0,
+        _rate: { p0: 0, t0: 0, dur: 0, durAt: 0, count: 0 },
+        _trackChanged: false,
+        _trackChangeAt: 0,
+        _lastTitle: '',
+        _seekAt: 0,
+      };
+    }
+    const S = window.__zvuk;
+
+    // ============================================================
+    // ОДНОКРАТНАЯ НАСТРОЙКА (выполняется только при первом poll)
+    // ============================================================
+    if (!S._installed) {
+      S._installed = true;
+      try {
+        // --- 1. Перехват fetch ---
+        const _origFetch = window.fetch.bind(window);
+        window.fetch = function _zvukFetch(input, init) {
+          const url =
+            (typeof input === 'string' ? input : (input && input.url) ? input.url : '') || '';
+          return _origFetch(input, init).then(function _onFetchResponse(response) {
+            if (
+              url &&
+              (url.indexOf('/api/') > -1 ||
+               url.indexOf('graphql') > -1 ||
+               url.indexOf('/v1/') > -1 ||
+               url.indexOf('/v2/') > -1 ||
+               url.indexOf('/tracks/') > -1)
+            ) {
+              response.clone().text().then(function _parseFetchBody(text) {
+                try {
+                  const data = JSON.parse(text);
+                  const dur = findDurationDeep(data);
+                  if (dur > 0) {
+                    S._apiDuration = dur;
+                    S._apiDurationAt = Date.now();
+                  }
+                } catch (_e) {}
+              }).catch(function () {});
+            }
+            return response;
+          }).catch(function (e) { throw e; });
+        };
+
+        // --- 2. Перехват XMLHttpRequest ---
+        const _origXhrOpen = XMLHttpRequest.prototype.open;
+        const _origXhrSend = XMLHttpRequest.prototype.send;
+        XMLHttpRequest.prototype.open = function _zvukXhrOpen(m, u) {
+          this._zvukUrl = typeof u === 'string' ? u : String(u);
+          return _origXhrOpen.apply(this, arguments);
+        };
+        XMLHttpRequest.prototype.send = function _zvukXhrSend(body) {
+          this.addEventListener('load', function _zvukXhrLoad() {
+            try {
+              if (
+                this._zvukUrl &&
+                (this._zvukUrl.indexOf('/api/') > -1 ||
+                 this._zvukUrl.indexOf('graphql') > -1)
+              ) {
+                const data = JSON.parse(this.responseText);
+                const dur = findDurationDeep(data);
+                if (dur > 0) {
+                  S._apiDuration = dur;
+                  S._apiDurationAt = Date.now();
+                }
+              }
+            } catch (_e) {}
+          });
+          return _origXhrSend.apply(this, arguments);
+        };
+
+        // --- 3. rAF-цикл: отслеживание --width с частотой кадров ---
+        (function _zvukRaf() {
+          try {
+            const inner =
+              document.querySelector('[class*="inner__"]') ||
+              document.querySelector('[class*="bar__"]');
+            if (inner) {
+              const raw =
+                inner.style.getPropertyValue('--width') ||
+                getComputedStyle(inner).getPropertyValue('--width') ||
+                (inner.getAttribute('style') || '').match(/--width:\\s*([0-9.]+)/)?.[1] ||
+                '0';
+              const pct = parseFloat(raw) || 0;
+              if (pct > 0) {
+                const now = Date.now();
+                const prev = S._lastRafPct;
+
+                // Скачок > 5% = перемотка (seek)
+                if (prev > 0 && Math.abs(pct - prev) > 5) {
+                  S._seekAt = now;
+                }
+
+                // Плавный рост = оценка длительности
+                if (prev > 0 && pct > prev && (pct - prev) < 10) {
+                  if (S._rate.t0 > 0) {
+                    const dt = (now - S._rate.t0) / 1000;
+                    const dp = pct - S._rate.p0;
+                    if (dp > 0.01 && dt > 0.05) {
+                      const est = Math.round((dt * 100) / dp);
+                      if (est > 10 && est < 7200) {
+                        if (S._rate.dur === 0) {
+                          S._rate.dur = est;
+                        } else {
+                          const alpha = Math.min(0.5, 10 / (S._rate.count + 10));
+                          S._rate.dur = Math.round(alpha * est + (1 - alpha) * S._rate.dur);
+                        }
+                        S._rate.durAt = now;
+                        S._rate.count++;
+                      }
+                    }
+                  }
+                  S._rate.p0 = pct;
+                  S._rate.t0 = now;
+                }
+
+                S._lastRafPct = pct;
+                S._lastRafPctAt = now;
+                S._lastPct = pct;
+                S._lastPctAt = now;
+              }
+            }
+          } catch (_e) {}
+          requestAnimationFrame(_zvukRaf);
+        })();
+
+        // --- 4. MutationObserver на заголовке трека ---
+        const _titleEl =
+          document.querySelector('[class*="infoTitle"]') ||
+          document.querySelector('[class*="trackName"]');
+        if (_titleEl) {
+          new MutationObserver(function _titleWatcher() {
+            try {
+              const t = (_titleEl.textContent || '').trim();
+              if (t && t !== S._lastTitle) {
+                S._lastTitle = t;
+                S._trackChanged = true;
+                S._trackChangeAt = Date.now();
+              }
+            } catch (_e) {}
+          }).observe(_titleEl, { childList: true, subtree: true, characterData: true });
+        }
+
+        // --- 5. MutationObserver на style прогресc-бара (--width) ---
+        const _widthEl =
+          document.querySelector('[class*="inner__"]') ||
+          document.querySelector('[class*="bar__"]');
+        if (_widthEl) {
+          new MutationObserver(function _widthWatcher() {
+            try {
+              const raw =
+                _widthEl.style.getPropertyValue('--width') ||
+                (_widthEl.getAttribute('style') || '').match(/--width:\\s*([0-9.]+)/)?.[1] ||
+                '0';
+              const pct = parseFloat(raw) || 0;
+              if (pct > 0) {
+                S._lastPct = pct;
+                S._lastPctAt = Date.now();
+              }
+            } catch (_e) {}
+          }).observe(_widthEl, { attributes: true, attributeFilter: ['style'] });
+        }
+      } catch (_e) {
+        console.warn('[Zvuk] setup error:', _e);
+      }
+    }
+
+    // ============================================================
+    // СНИМОК DOM (выполняется при каждом poll)
+    // ============================================================
+
+    // --- Корень плеера ---
     const findRoot = () => {
       const mini = document.querySelector('[class*="miniPlayerWrapper"]');
       if (mini) return mini;
       const p = document.querySelector('[class*="playerContainer"]');
-      if (p?.querySelector('[class*="controls__"]')) return p;
+      if (p && p.querySelector('[class*="controls__"]')) return p;
       const c = document.querySelector('[class*="controls__"]');
       if (c) return c.closest('[class*="player"]') || c.parentElement;
       return null;
     };
     const root = findRoot();
-    if (!root) return state;
+    if (!root) {
+      return state;
+    }
     state.hasPlayer = true;
     state._debug = { rootClass: root.className || '' };
 
     const q = (sel) => root.querySelector(sel);
-    const dq = (sel) => document.querySelector(sel); // document-level fallback
+    const dq = (sel) => document.querySelector(sel);
 
-    // Длительность трека: метаданные страницы
-    let durationSec = 0;
-    try {
-      // JSON-LD
-      document.querySelectorAll('script[type="application/ld+json"]').forEach(script => {
-        if (durationSec) return;
-        const data = JSON.parse(script.textContent || '{}');
-        (data['@graph'] || [data]).forEach(item => {
-          if (item.duration) {
-            const m = item.duration.match(/^PT(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?$/);
-            if (m) durationSec = (parseInt(m[1]||0)*3600)+(parseInt(m[2]||0)*60)+(parseInt(m[3]||0));
-          }
-        });
-      });
-      // meta-теги
-      if (!durationSec) {
-        const meta = dq('meta[property="music:duration"], meta[itemprop="duration"]');
-        if (meta) {
-          const c = meta.getAttribute('content') || '';
-          const m = c.match(/^PT(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?$/);
-          if (m) durationSec = (parseInt(m[1]||0)*3600)+(parseInt(m[2]||0)*60)+(parseInt(m[3]||0));
-          else durationSec = parseInt(c) || 0;
-        }
-      }
-    } catch (_) {}
-    state._debug.durationFromMeta = durationSec;
-
-    // Название, артист, обложка
+    // --- Название, артист, обложка ---
     const titleEl = q('[class*="infoTitle"]') || dq('[class*="infoTitle"]');
     const artistEl = q('[class*="artistsWrapper"]') || dq('[class*="artistsWrapper"]');
-    const coverEl = q('[class*="coverButton"] img') || dq('[class*="coverButton"] img, [class*="player"] img');
-    const meta = navigator.mediaSession?.metadata;
+    const coverEl =
+      q('[class*="coverButton"] img') ||
+      dq('[class*="coverButton"] img, [class*="player"] img');
+    const msMeta = navigator.mediaSession?.metadata;
 
-    state.title = titleEl?.getAttribute('title') || titleEl?.textContent?.trim() || meta?.title || '';
-    state.artist = artistEl?.getAttribute('title') || artistEl?.textContent?.trim() || (meta?.artist || '');
-    state.coverUrl = coverEl?.currentSrc || coverEl?.src || meta?.artwork?.[meta.artwork.length - 1]?.src || '';
+    state.title =
+      titleEl?.getAttribute('title') || titleEl?.textContent?.trim() || msMeta?.title || '';
+    state.artist =
+      artistEl?.getAttribute('title') || artistEl?.textContent?.trim() || msMeta?.artist || '';
+    state.coverUrl =
+      coverEl?.currentSrc ||
+      coverEl?.src ||
+      msMeta?.artwork?.[msMeta.artwork.length - 1]?.src ||
+      '';
 
-    // Кнопки управления
+    // --- Кнопки управления ---
     const controls = q('[class*="controls__"]') || dq('[class*="controls__"]');
     const buttons = controls ? [...controls.querySelectorAll('button[class*="btn__"]')] : [];
     const playButton = buttons[1] || null;
-    state.isPlaying = playButton ? (() => {
+    state.isPlaying = (() => {
+      if (!playButton) return false;
       const paths = [...playButton.querySelectorAll('path')];
-      return paths.some(p => (p.getAttribute('d') || '').includes('8.25 3.09'));
-    })() : false;
+      return paths.some((p) => (p.getAttribute('d') || '').includes('8.25 3.09'));
+    })();
 
-    // CSS прогресс (--width)
-    const inner = q('[class*="inner__"]') || dq('[class*="inner__"]');
-    let pct = 0;
-    if (inner) {
-      pct = parseFloat(
-        inner.style.getPropertyValue('--width')
-        || getComputedStyle(inner).getPropertyValue('--width')
-        || inner.getAttribute('style')?.match(/--width:\\s*([0-9.]+)/)?.[1]
-        || '0'
-      ) || 0;
-    }
+    // --- Shuffle / Repeat / HiFi ---
+    const btn = (sel) => (q(sel) || dq(sel))?.closest('button');
+    const isActive = (b) =>
+      b && (/active/i.test(b.className) || b.getAttribute('aria-pressed') === 'true');
+    state.isShuffle = isActive(btn('[class*="shuffle"]'));
+    state.repeatMode = (() => {
+      const r = btn('[class*="repeat"]');
+      if (!r || !isActive(r)) return 'off';
+      return r.querySelectorAll('svg path').length === 2 ? 'one' : 'all';
+    })();
+    state.isHiFi = isActive(btn('[class*="HiFi"], [class*="hiFi"]'));
+    state.authenticated = Boolean(
+      state.title || msMeta?.title || document.cookie.includes('auth')
+    );
 
-    // Длительность и позиция
-    if (durationSec > 0) {
-      state.duration = durationSec;
-      state.position = pct > 0 ? Math.round((durationSec * pct) / 100) : 0;
-      state._debug.durationSource = 'meta';
-    } else if (pct > 0) {
-      // Оценка через скорость изменения --width между поллами
-      const track = window.__pTrack || { t0: 0, p0: 0, dur: 0 };
-      const now = Date.now();
-      if (track.p0 > 0 && track.t0 > 0) {
-        const dt = (now - track.t0) / 1000;
-        const dp = pct - track.p0;
-        if (dp > 0.01 && dp < 25 && dt > 0.3) {
-          const est = Math.round((dt * 100) / dp);
-          if (est > 10 && est < 7200) {
-            track.dur = track.dur === 0 ? est : Math.round(0.3 * est + 0.7 * track.dur);
-          }
-        }
-        track.p0 = pct;
-        track.t0 = now;
-      } else {
-        track.p0 = pct;
-        track.t0 = now;
-      }
-      window.__pTrack = track;
-      if (track.dur > 0) {
-        state.duration = track.dur;
-        state.position = Math.round((track.dur * pct) / 100);
-        state._debug.estimated = true;
-      }
-    }
-    state._debug.pct = pct;
-
-    // Media Session override
-    try {
-      const ps = navigator.mediaSession?.getPositionState?.();
-      if (ps?.duration > 0) { state.duration = Math.round(ps.duration); state.position = Math.round(ps.position || 0); }
-    } catch (_) {}
-
-    // Volume
-    const vs = q('[class*="miniPlayerControls"] [role="slider"]')
-      || q('[role="slider"]')
-      || dq('[role="slider"]');
+    // --- Volume ---
+    const vs =
+      q('[class*="miniPlayerControls"] [role="slider"]') ||
+      q('[role="slider"]') ||
+      dq('[role="slider"]');
     if (vs) {
       const v = Number(vs.getAttribute('aria-valuenow'));
       if (Number.isFinite(v)) state.volume = Math.round(v);
     }
 
-    // Shuffle / Repeat / HiFi
-    const btn = (sel) => (q(sel) || dq(sel))?.closest('button');
-    const isActive = (b) => b && (/active/i.test(b.className) || b.getAttribute('aria-pressed') === 'true');
-    state.isShuffle = isActive(btn('[class*="shuffle"]'));
-    state.repeatMode = isActive(btn('[class*="repeat"]'))
-      ? (btn('[class*="repeat"]')?.querySelectorAll('svg path').length === 2 ? 'one' : 'all')
-      : 'off';
-    state.isHiFi = isActive(btn('[class*="HiFi"], [class*="hiFi"]'));
-    state.authenticated = Boolean(state.title || meta?.title || document.cookie.includes('auth'));
+    // ============================================================
+    // ДЛИТЕЛЬНОСТЬ: цепочка приоритетов
+    // ============================================================
+    let duration = 0;
+    let durationSource = 'none';
 
-    if (!CMD) return state;
+    // 1) Из перехваченного API
+    if (S._apiDuration > 0) {
+      duration = S._apiDuration;
+      durationSource = 'api';
+    }
 
-    // Управление
+    // 2) JSON-LD (структурированные данные страницы)
+    if (!duration) {
+      try {
+        const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+        for (let i = 0; i < scripts.length; i++) {
+          const data = JSON.parse(scripts[i].textContent || '{}');
+          const items = data['@graph'] || [data];
+          for (let j = 0; j < items.length; j++) {
+            const item = items[j];
+            if (item?.duration) {
+              const m = item.duration.match(/^PT(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?$/);
+              if (m) {
+                duration =
+                  (parseInt(m[1] || 0, 10) * 3600) +
+                  (parseInt(m[2] || 0, 10) * 60) +
+                  parseInt(m[3] || 0, 10);
+                if (duration) break;
+              }
+            }
+          }
+          if (duration) break;
+        }
+      } catch (_e) {}
+      if (duration > 0) durationSource = 'jsonld';
+    }
+
+    // 3) Meta-теги
+    if (!duration) {
+      try {
+        const mEl = dq('meta[property="music:duration"], meta[itemprop="duration"]');
+        if (mEl) {
+          const c = (mEl.getAttribute('content') || '').trim();
+          const m = c.match(/^PT(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?$/);
+          if (m) {
+            duration =
+              (parseInt(m[1] || 0, 10) * 3600) +
+              (parseInt(m[2] || 0, 10) * 60) +
+              parseInt(m[3] || 0, 10);
+          } else {
+            duration = parseInt(c, 10) || 0;
+          }
+        }
+      } catch (_e) {}
+      if (duration > 0) durationSource = 'meta';
+    }
+
+    // 4) CSS-оценка (только если 3+ отсчётов от rAF)
+    if (!duration && S._rate.dur > 0 && S._rate.count >= 3) {
+      duration = S._rate.dur;
+      durationSource = 'css-rate';
+    }
+
+    // Media Session override (если вдруг появится)
+    try {
+      const ps = navigator.mediaSession?.getPositionState?.();
+      if (ps?.duration > 0) {
+        duration = Math.round(ps.duration);
+        durationSource = 'media-session';
+        if (ps.position > 0) state.position = Math.round(ps.position);
+      }
+    } catch (_e) {}
+
+    state.duration = duration;
+    state._debug.durationSource = durationSource;
+    state._debug.apiDuration = S._apiDuration;
+    state._debug.rateDur = S._rate.dur;
+    state._debug.rateCount = S._rate.count;
+
+    // ============================================================
+    // ПОЗИЦИЯ: длительность × CSS --width
+    // ============================================================
+    const pct = S._lastPct || 0;
+    let position = 0;
+    if (duration > 0 && pct > 0) {
+      position = Math.round((duration * pct) / 100);
+    }
+
+    state.position = position;
+    state._debug.pct = pct;
+    state._debug.lastPctAt =
+      S._lastPctAt ? (Date.now() - S._lastPctAt) + 'ms ago' : 'never';
+
+    // ============================================================
+    // ТРИГГЕРЫ (флаги для player.js)
+    // ============================================================
+
+    // Смена трека: через MutationObserver + сравнение заголовка
+    if (S._trackChanged || (state.title && state.title !== S._lastTitle)) {
+      state._debug.trackChanged = true;
+      S._lastTitle = state.title;
+      S._trackChanged = false;
+    }
+
+    // Перемотка: скачок --width > 5% в rAF
+    if (S._seekAt > 0 && Date.now() - S._seekAt < 3000) {
+      state._debug.seekDetected = true;
+      state._debug.seekAge = (Date.now() - S._seekAt) + 'ms';
+    }
+
+    // ============================================================
+    // КОМАНДЫ (выполняются при CMD !== null)
+    // ============================================================
+    if (CMD === null) return state;
+
     const reactClick = (el) => {
       if (!el) throw new Error('zvuk-btn-not-found');
       el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, view: window, buttons: 1, pointerId: 1 }));
@@ -184,7 +462,10 @@ function buildZvukGuestScript(command, value) {
       document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, buttons: 1 }));
       return true;
     };
-    const progressBar = q('[class*="bar__"]') || q('[class*="root__"][class*="progress"]') || dq('[class*="bar__"]');
+    const progressBar =
+      q('[class*="bar__"]') ||
+      q('[class*="root__"][class*="progress"]') ||
+      dq('[class*="bar__"]');
 
     switch (CMD) {
       case 'toggle': return reactClick(playButton);
