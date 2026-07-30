@@ -1,5 +1,5 @@
 const HOME_URL = 'https://zvuk.com/';
-const POLL_MS = 1000;
+const POLL_MS = 800;
 const $ = (id) => document.getElementById(id);
 const [btnBack, btnForward, btnReload, btnHome, btnNewTab, urlBar, tabsContainer, webviewsContainer] = ['btn-back','btn-forward','btn-reload','btn-home','btn-new-tab','url-bar','tabs-container','webviews-container'].map($);
 let tabs = [], activeTabId = null, tabId = 0;
@@ -62,7 +62,12 @@ function addTab(url = HOME_URL, select = true) {
   webview.addEventListener('did-start-loading', () => {
     console.log('[Zvuk bridge] did-start-loading for tab', tab.id);
     // Для zvuk.com (SPA) не сбрасываем ready при навигации
-    const isZvuk = /(^|\.)zvuk\.com$/i.test(new URL(webview.getURL()).hostname);
+    let isZvuk = false;
+    try {
+      isZvuk = /(^|\.)zvuk\.com$/i.test(new URL(webview.getURL()).hostname);
+    } catch (_) {
+      // webview.getURL() может быть пустым при начальной загрузке
+    }
     if (!isZvuk) {
       tab.ready = false;
     }
@@ -175,6 +180,7 @@ async function poll() {
       return;
     }
     console.log('[Zvuk bridge] poll: player found', { hasPlayer: found.state.hasPlayer, title: found.state.title });
+    console.log('[Zvuk bridge] FULL STATE:', JSON.stringify(found.state, null, 2));
     sendState(found.state);
   } catch (error) {
     console.error('[Zvuk bridge] poll error:', error);

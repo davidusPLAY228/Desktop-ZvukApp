@@ -1,7 +1,6 @@
 /**
  * Гостевой скрипт для webview zvuk.com.
- * Селекторы основаны на фактическом DOM мини-плеера (см. .codex/player.md).
- * Управление — через DOM-события; чтение состояния — DOM + <audio> + Media Session API.
+ * Управление — через DOM-события; чтение состояния — DOM + CSS + метаданные.
  */
 function buildZvukGuestScript(command, value) {
   const cmdLiteral = command == null ? 'null' : JSON.stringify(String(command));
@@ -29,193 +28,176 @@ function buildZvukGuestScript(command, value) {
 
     if (!state.available) return state;
 
-    /** Найти корень плеера: мини-плеер или нижняя панель. */
+    /** Корень плеера */
     const findRoot = () => {
       const mini = document.querySelector('[class*="miniPlayerWrapper"]');
       if (mini) return mini;
-      const playerContainer = document.querySelector('[class*="playerContainer"]');
-      if (playerContainer?.querySelector('[class*="controls__"]')) return playerContainer;
-      const controls = document.querySelector('[class*="controls__"]');
-      if (controls) return controls.closest('[class*="player"]') || controls.parentElement || document.body;
+      const p = document.querySelector('[class*="playerContainer"]');
+      if (p?.querySelector('[class*="controls__"]')) return p;
+      const c = document.querySelector('[class*="controls__"]');
+      if (c) return c.closest('[class*="player"]') || c.parentElement;
       return null;
     };
-
     const root = findRoot();
     if (!root) return state;
     state.hasPlayer = true;
-    state._debug = { rootClass: root.className || 'no-class' };
+    state._debug = { rootClass: root.className || '' };
 
     const q = (sel) => root.querySelector(sel);
-    const qa = (sel) => [...root.querySelectorAll(sel)];
+    const dq = (sel) => document.querySelector(sel); // document-level fallback
 
-    const media = document.querySelector('audio,video');
+    // Длительность трека: метаданные страницы
+    let durationSec = 0;
+    try {
+      // JSON-LD
+      document.querySelectorAll('script[type="application/ld+json"]').forEach(script => {
+        if (durationSec) return;
+        const data = JSON.parse(script.textContent || '{}');
+        (data['@graph'] || [data]).forEach(item => {
+          if (item.duration) {
+            const m = item.duration.match(/^PT(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?$/);
+            if (m) durationSec = (parseInt(m[1]||0)*3600)+(parseInt(m[2]||0)*60)+(parseInt(m[3]||0));
+          }
+        });
+      });
+      // meta-теги
+      if (!durationSec) {
+        const meta = dq('meta[property="music:duration"], meta[itemprop="duration"]');
+        if (meta) {
+          const c = meta.getAttribute('content') || '';
+          const m = c.match(/^PT(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?$/);
+          if (m) durationSec = (parseInt(m[1]||0)*3600)+(parseInt(m[2]||0)*60)+(parseInt(m[3]||0));
+          else durationSec = parseInt(c) || 0;
+        }
+      }
+    } catch (_) {}
+    state._debug.durationFromMeta = durationSec;
+
+    // Название, артист, обложка
+    const titleEl = q('[class*="infoTitle"]') || dq('[class*="infoTitle"]');
+    const artistEl = q('[class*="artistsWrapper"]') || dq('[class*="artistsWrapper"]');
+    const coverEl = q('[class*="coverButton"] img') || dq('[class*="coverButton"] img, [class*="player"] img');
     const meta = navigator.mediaSession?.metadata;
-
-    const titleEl = q('[class*="infoTitle"]') || q('a[href*="/track/"] p[title]') || document.querySelector('[class*="infoTitle"], a[href*="/track/"] p[title]');
-    const artistEl = q('[class*="artistsWrapper"]') || q('[class*="info__"] a[href*="/artist/"]') || document.querySelector('[class*="artistsWrapper"], [class*="info__"] a[href*="/artist/"]');
-    const coverEl = q('[class*="coverButton"] img') || q('img[alt*="Трек"]') || document.querySelector('[class*="coverButton"] img, img[alt*="Трек"], [class*="player"] img');
-
-    state._debug.titleEl = !!titleEl;
-    state._debug.artistEl = !!artistEl;
-    state._debug.coverEl = !!coverEl;
 
     state.title = titleEl?.getAttribute('title') || titleEl?.textContent?.trim() || meta?.title || '';
     state.artist = artistEl?.getAttribute('title') || artistEl?.textContent?.trim() || (meta?.artist || '');
     state.coverUrl = coverEl?.currentSrc || coverEl?.src || meta?.artwork?.[meta.artwork.length - 1]?.src || '';
 
-    const controls = q('[class*="controls__"]') || q('[class*="actions__"]') || document.querySelector('[class*="controls__"], [class*="actions__"]');
+    // Кнопки управления
+    const controls = q('[class*="controls__"]') || dq('[class*="controls__"]');
     const buttons = controls ? [...controls.querySelectorAll('button[class*="btn__"]')] : [];
-    const prevButton = buttons[0] || null;
     const playButton = buttons[1] || null;
-    const nextButton = buttons[2] || null;
+    state.isPlaying = playButton ? (() => {
+      const paths = [...playButton.querySelectorAll('path')];
+      return paths.some(p => (p.getAttribute('d') || '').includes('8.25 3.09'));
+    })() : false;
 
-    const isPauseIcon = (btn) => {
-      if (!btn) return false;
-      const paths = [...btn.querySelectorAll('path')];
-      return paths.some(p => {
-        const d = p.getAttribute('d') || '';
-        return d.includes('8.25 3.09') || d.includes('15.608 3.09') || d.includes('V16.91') || /M\d+\.\d+\s+3\.09/.test(d);
-      });
-    };
-
-    if (media) {
-      state.position = Number.isFinite(media.currentTime) ? media.currentTime : 0;
-      state.duration = Number.isFinite(media.duration) && media.duration > 0 ? media.duration : 0;
-      state.volume = Math.round((media.volume ?? 1) * 100);
-      state.isPlaying = !media.paused && !media.ended;
-      state._debug.media = { hasAudio: true, currentTime: media.currentTime, duration: media.duration };
-    } else {
-      state._debug.media = { hasAudio: false };
+    // CSS прогресс (--width)
+    const inner = q('[class*="inner__"]') || dq('[class*="inner__"]');
+    let pct = 0;
+    if (inner) {
+      pct = parseFloat(
+        inner.style.getPropertyValue('--width')
+        || getComputedStyle(inner).getPropertyValue('--width')
+        || inner.getAttribute('style')?.match(/--width:\\s*([0-9.]+)/)?.[1]
+        || '0'
+      ) || 0;
     }
 
+    // Длительность и позиция
+    if (durationSec > 0) {
+      state.duration = durationSec;
+      state.position = pct > 0 ? Math.round((durationSec * pct) / 100) : 0;
+      state._debug.durationSource = 'meta';
+    } else if (pct > 0) {
+      // Оценка через скорость изменения --width между поллами
+      const track = window.__pTrack || { t0: 0, p0: 0, dur: 0 };
+      const now = Date.now();
+      if (track.p0 > 0 && track.t0 > 0) {
+        const dt = (now - track.t0) / 1000;
+        const dp = pct - track.p0;
+        if (dp > 0.01 && dp < 25 && dt > 0.3) {
+          const est = Math.round((dt * 100) / dp);
+          if (est > 10 && est < 7200) {
+            track.dur = track.dur === 0 ? est : Math.round(0.3 * est + 0.7 * track.dur);
+          }
+        }
+        track.p0 = pct;
+        track.t0 = now;
+      } else {
+        track.p0 = pct;
+        track.t0 = now;
+      }
+      window.__pTrack = track;
+      if (track.dur > 0) {
+        state.duration = track.dur;
+        state.position = Math.round((track.dur * pct) / 100);
+        state._debug.estimated = true;
+      }
+    }
+    state._debug.pct = pct;
+
+    // Media Session override
     try {
-      const pos = navigator.mediaSession?.getPositionState?.();
-      if (pos?.duration > 0) state.duration = pos.duration;
-      if (pos?.position >= 0) state.position = pos.position;
-      state._debug.mediaSession = pos || null;
-    } catch (_) {
-      state._debug.mediaSession = null;
-    }
+      const ps = navigator.mediaSession?.getPositionState?.();
+      if (ps?.duration > 0) { state.duration = Math.round(ps.duration); state.position = Math.round(ps.position || 0); }
+    } catch (_) {}
 
-    if (playButton) {
-      state.isPlaying = isPauseIcon(playButton);
-    }
-
-    const progressInner = q('[class*="inner__"][class*="nimated"]')
-      || q('[class*="inner__"]')
-      || document.querySelector('[class*="inner__"][class*="nimated"], [class*="inner__"]');
-    if (progressInner) {
-      const raw = progressInner.style.getPropertyValue('--width')
-        || getComputedStyle(progressInner).getPropertyValue('--width')
-        || progressInner.getAttribute('style')?.match(/--width:\s*([0-9.]+)/)?.[1]
-        || '0';
-      const pct = parseFloat(raw) || 0;
-      if (state.duration > 0 && pct > 0) {
-        state.position = Math.max(state.position, (state.duration * pct) / 100);
-      }
-    }
-
-    const volumeSlider = q('[class*="miniPlayerControls"] [role="slider"]')
-      || q('[role="slider"][aria-valuetext*="ромкость"]')
+    // Volume
+    const vs = q('[class*="miniPlayerControls"] [role="slider"]')
       || q('[role="slider"]')
-      || document.querySelector('[role="slider"][aria-valuetext*="ромкость"], [class*="miniPlayerControls"] [role="slider"], [class*="wrapper__"] [role="slider"]');
-    if (volumeSlider) {
-      const vol = Number(volumeSlider.getAttribute('aria-valuenow'));
-      if (Number.isFinite(vol)) state.volume = Math.round(vol);
+      || dq('[role="slider"]');
+    if (vs) {
+      const v = Number(vs.getAttribute('aria-valuenow'));
+      if (Number.isFinite(v)) state.volume = Math.round(v);
     }
 
-    const isVisible = (el) => {
-      if (!el) return false;
-      const s = getComputedStyle(el);
-      return s.display !== 'none' && s.visibility !== 'hidden' && Number(s.opacity || 1) > 0.05;
-    };
-
-    const buttonActive = (btn) => {
-      if (!btn) return false;
-      const activeIcon = btn.querySelector('[class*="activeIcon"]');
-      if (activeIcon) return isVisible(activeIcon);
-      const wrapper = btn.querySelector('[class*="wrapper__"]');
-      if (wrapper && wrapper.querySelector('[class*="activeIcon"]')) {
-        return isVisible(wrapper.querySelector('[class*="activeIcon"]'));
-      }
-      return /active|Active/i.test(btn.className) || btn.getAttribute('aria-pressed') === 'true';
-    };
-
-    const shuffleBtn = (q('[class*="shuffleIcon"]') || q('button [class*="shuffle"]') || document.querySelector('[class*="shuffleIcon"], button [class*="shuffle"]'))?.closest('button');
-    const repeatBtn = (q('[class*="repeatIcon"]') || q('button [class*="repeat"]') || document.querySelector('[class*="repeatIcon"], button [class*="repeat"]'))?.closest('button');
-    const hifiBtn = q('[class*="hiFiButton"]') || q('[class*="HifiButton"]') || document.querySelector('[class*="hiFiButton"], [class*="HifiButton"]');
-
-    state.isShuffle = buttonActive(shuffleBtn);
-    if (buttonActive(repeatBtn)) {
-      const oneMarker = repeatBtn?.querySelector('[class*="repeatOne"], [class*="RepeatOne"], small');
-      const text = repeatBtn?.textContent || '';
-      const hasOneMarker = oneMarker && isVisible(oneMarker) && oneMarker.textContent.trim() === '1';
-      state.repeatMode = hasOneMarker || /\b1\b/.test(text) ? 'one' : 'all';
-    }
-
-    state.isHiFi = buttonActive(hifiBtn);
-    state._debug.hifiBtn = !!hifiBtn;
-
-    state.authenticated = Boolean(
-      state.title || meta?.title || media?.src || document.cookie.includes('auth')
-    );
+    // Shuffle / Repeat / HiFi
+    const btn = (sel) => (q(sel) || dq(sel))?.closest('button');
+    const isActive = (b) => b && (/active/i.test(b.className) || b.getAttribute('aria-pressed') === 'true');
+    state.isShuffle = isActive(btn('[class*="shuffle"]'));
+    state.repeatMode = isActive(btn('[class*="repeat"]'))
+      ? (btn('[class*="repeat"]')?.querySelectorAll('svg path').length === 2 ? 'one' : 'all')
+      : 'off';
+    state.isHiFi = isActive(btn('[class*="HiFi"], [class*="hiFi"]'));
+    state.authenticated = Boolean(state.title || meta?.title || document.cookie.includes('auth'));
 
     if (!CMD) return state;
 
-    const reactClick = (element, name) => {
-      if (!element) throw new Error('zvuk-' + name + '-not-found');
-      const opts = { bubbles: true, cancelable: true, view: window, buttons: 1 };
-      element.dispatchEvent(new PointerEvent('pointerdown', { ...opts, pointerId: 1, pointerType: 'mouse', isPrimary: true }));
-      element.dispatchEvent(new MouseEvent('mousedown', opts));
-      element.dispatchEvent(new PointerEvent('pointerup', { ...opts, pointerId: 1, pointerType: 'mouse', isPrimary: true }));
-      element.dispatchEvent(new MouseEvent('mouseup', opts));
-      element.dispatchEvent(new MouseEvent('click', opts));
+    // Управление
+    const reactClick = (el) => {
+      if (!el) throw new Error('zvuk-btn-not-found');
+      el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, view: window, buttons: 1, pointerId: 1 }));
+      el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window, buttons: 1 }));
+      el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, view: window, buttons: 1, pointerId: 1 }));
+      el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window, buttons: 1 }));
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window, buttons: 1 }));
       return true;
     };
-
-    /** React-слайдеры Zvuk слушают mousedown → mousemove/mouseup на document. */
-    const pointerAtPercent = (element, percent, name) => {
-      if (!element) throw new Error('zvuk-' + name + '-not-found');
-      const pct = Math.max(0, Math.min(100, Number(percent)));
-      const box = element.getBoundingClientRect();
-      const x = box.left + (box.width * pct) / 100;
+    const pointerAt = (el, pctVal) => {
+      if (!el) throw new Error('zvuk-slider-not-found');
+      const box = el.getBoundingClientRect();
+      const x = box.left + (box.width * Math.max(0, Math.min(100, Number(pctVal)))) / 100;
       const y = box.top + box.height / 2;
-      const base = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, buttons: 1 };
-      element.dispatchEvent(new MouseEvent('mousedown', base));
-      document.dispatchEvent(new MouseEvent('mousemove', base));
-      document.dispatchEvent(new MouseEvent('mouseup', base));
+      el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, buttons: 1 }));
+      document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, buttons: 1 }));
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, buttons: 1 }));
       return true;
     };
-
-    const progressBar = q('[class*="bar__"]')
-      || q('[class*="root__"][class*="progress"]')
-      || document.querySelector('[class*="bar__"], [class*="root__"][class*="progress"], div[class*="root__"] > div[class*="bar__"]');
+    const progressBar = q('[class*="bar__"]') || q('[class*="root__"][class*="progress"]') || dq('[class*="bar__"]');
 
     switch (CMD) {
-      case 'toggle':
-        return reactClick(playButton, 'play-button');
-      case 'play':
-        if (!state.isPlaying) return reactClick(playButton, 'play-button');
-        return true;
-      case 'pause':
-        if (state.isPlaying) return reactClick(playButton, 'play-button');
-        return true;
-      case 'prev':
-        return reactClick(prevButton, 'previous-button');
-      case 'next':
-        return reactClick(nextButton, 'next-button');
-      case 'shuffle':
-        return reactClick(shuffleBtn, 'shuffle-button');
-      case 'repeat':
-        return reactClick(repeatBtn, 'repeat-button');
-      case 'hifi':
-        return reactClick(hifiBtn, 'hifi-button');
-      case 'seek':
-        return pointerAtPercent(progressBar, VAL, 'progress-bar');
-      case 'volume':
-        return pointerAtPercent(volumeSlider, VAL, 'volume-slider');
-      default:
-        throw new Error('zvuk-unknown-command-' + CMD);
+      case 'toggle': return reactClick(playButton);
+      case 'play': return state.isPlaying || reactClick(playButton);
+      case 'pause': return !state.isPlaying || reactClick(playButton);
+      case 'prev': return reactClick(buttons[0]);
+      case 'next': return reactClick(buttons[2]);
+      case 'seek': return pointerAt(progressBar, VAL);
+      case 'volume': return pointerAt(vs, VAL);
+      case 'shuffle': return reactClick(btn('[class*="shuffle"]'));
+      case 'repeat': return reactClick(btn('[class*="repeat"]'));
+      case 'hifi': return reactClick(btn('[class*="HiFi"], [class*="hiFi"]'));
+      default: throw new Error('zvuk-unknown-' + CMD);
     }
   })()`;
 }
@@ -223,7 +205,6 @@ function buildZvukGuestScript(command, value) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { buildZvukGuestScript };
 }
-
 if (typeof window !== 'undefined') {
   window.buildZvukGuestScript = buildZvukGuestScript;
 }

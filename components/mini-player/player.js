@@ -27,32 +27,53 @@ let dragging = false;
 let lastVolume = 70;
 let staleTimer = null;
 let lastUpdate = 0;
-let timeUpdateTimer = null;
-let currentState = { position: 0, duration: 0, isPlaying: false };
+let localTimer = null;
+let localPosition = 0;
+let localDuration = 0;
+let isLocalPlaying = false;
+let lastServerUpdate = 0;
 
 const time = (seconds) => `${Math.floor((seconds || 0) / 60)}:${String(Math.floor((seconds || 0) % 60)).padStart(2, '0')}`;
 const send = (command, value) => window.miniPlayer.command(command, value);
 
-function updateTimeDisplay() {
-  if (!dragging && currentState.isPlaying && currentState.duration > 0) {
-    currentState.position = Math.min(currentState.position + 0.1, currentState.duration);
-    els.seek.value = Math.round((currentState.position / currentState.duration) * 100);
-    els.current.textContent = time(currentState.position);
-    els.duration.textContent = time(currentState.duration);
+function updateLocalTime() {
+  if (!dragging && isLocalPlaying && localDuration > 0) {
+    const now = Date.now();
+    const elapsed = (now - lastServerUpdate) / 1000;
+    localPosition = Math.min(localPosition + elapsed, localDuration);
+    lastServerUpdate = now;
+
+    els.seek.value = Math.round((localPosition / localDuration) * 100);
+    els.current.textContent = time(localPosition);
+    els.duration.textContent = time(localDuration);
+
+    console.log('[Timeline] Local update:', {
+      position: localPosition.toFixed(2),
+      duration: localDuration.toFixed(2),
+      elapsed: elapsed.toFixed(3),
+      percentage: ((localPosition / localDuration) * 100).toFixed(1) + '%'
+    });
+  } else {
+    console.log('[Timeline] Not updating:', {
+      dragging,
+      isLocalPlaying,
+      localDuration
+    });
   }
 }
 
-function startTimeUpdates() {
-  if (timeUpdateTimer) clearInterval(timeUpdateTimer);
-  if (currentState.isPlaying) {
-    timeUpdateTimer = setInterval(updateTimeDisplay, 100);
+function startLocalTimer() {
+  if (localTimer) clearInterval(localTimer);
+  if (isLocalPlaying && localDuration > 0) {
+    lastServerUpdate = Date.now();
+    localTimer = setInterval(updateLocalTime, 100);
   }
 }
 
-function stopTimeUpdates() {
-  if (timeUpdateTimer) {
-    clearInterval(timeUpdateTimer);
-    timeUpdateTimer = null;
+function stopLocalTimer() {
+  if (localTimer) {
+    clearInterval(localTimer);
+    localTimer = null;
   }
 }
 
@@ -101,14 +122,49 @@ window.miniPlayer.onState((state) => {
   markFresh();
   setBusy(false);
 
-  currentState.position = state.position || 0;
-  currentState.duration = state.duration || 0;
-  currentState.isPlaying = !!state.isPlaying;
+  console.log('[Timeline] State received:', {
+    position: state.position,
+    duration: state.duration,
+    isPlaying: state.isPlaying,
+    hasPosition: !!state.position,
+    hasDuration: !!state.duration,
+    debugInfo: state._debug
+  });
 
-  if (state.isPlaying) {
-    startTimeUpdates();
-  } else {
-    stopTimeUpdates();
+  // Обновляем локальные переменные для счетчика времени
+  localPosition = state.position || 0;
+  const hadDuration = localDuration > 0;
+  localDuration = state.duration || 0;
+  const nowHasDuration = localDuration > 0;
+  const wasPlaying = isLocalPlaying;
+  isLocalPlaying = !!state.isPlaying;
+  lastServerUpdate = Date.now();
+
+  console.log('[Timeline] Local state updated:', {
+    localPosition,
+    localDuration,
+    isLocalPlaying,
+    wasPlaying,
+    hadDuration,
+    nowHasDuration,
+    timerWillStart: (isLocalPlaying && !wasPlaying) || (isLocalPlaying && !hadDuration && nowHasDuration),
+    timerWillStop: !isLocalPlaying && wasPlaying
+  });
+
+  // Управляем локальным таймером
+  if (isLocalPlaying && !wasPlaying) {
+    console.log('[Timeline] Starting local timer');
+    startLocalTimer();
+  } else if (!isLocalPlaying && wasPlaying) {
+    console.log('[Timeline] Stopping local timer');
+    stopLocalTimer();
+  } else if (isLocalPlaying && !hadDuration && nowHasDuration) {
+    // Duration появился после старта — запускаем таймер теперь
+    console.log('[Timeline] Duration arrived, starting local timer');
+    startLocalTimer();
+  } else if (isLocalPlaying) {
+    console.log('[Timeline] Timer already running, resetting lastServerUpdate');
+    if (localTimer) lastServerUpdate = Date.now();
   }
 
   const noSite = state.available === false;
@@ -140,8 +196,11 @@ window.miniPlayer.onState((state) => {
     els.placeholder.hidden = false;
   }
 
-  if (!dragging) {
-    els.seek.value = state.duration > 0 ? Math.round((state.position / state.duration) * 100) : 0;
+  if (!dragging && state.duration > 0) {
+    els.seek.value = Math.round((state.position / state.duration) * 100);
+    els.current.textContent = time(state.position);
+    els.duration.textContent = time(state.duration);
+  } else if (!dragging) {
     els.current.textContent = time(state.position);
     els.duration.textContent = time(state.duration);
   }
