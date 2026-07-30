@@ -2,6 +2,9 @@
 /.test
 *.test
 **/changelog
+**/*code.bat*
+**/*.bat
+*.bat
 
 dist
 
