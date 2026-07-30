@@ -12,14 +12,14 @@ function createTray() { if (tray) return; tray = new Tray(icon()); tray.setToolT
 function createWindow() {
   createTray(); win = new BrowserWindow({ width: 1600, height: 900, minWidth: 600, minHeight: 400, title: 'ZvukApp', icon: icon(), webPreferences: { webviewTag: true, contextIsolation: true, nodeIntegration: false, preload: path.join(__dirname, 'components/preload.js'), cache: false } });
   Menu.setApplicationMenu(null); win.loadFile(path.join(__dirname, 'components/index.html'));
-  win.webContents.openDevTools(); // Открыть DevTools для отладки
+  //win.webContents.openDevTools(); // Открыть DevTools для отладки
   win.on('close', (event) => { if (!isQuitting) { event.preventDefault(); win.hide(); } });
 }
 function createPlayerWindow() {
   if (playerWin && !playerWin.isDestroyed()) return playerWin;
   playerWin = new BrowserWindow({ width: 300, height: 500, minWidth: 300, minHeight: 500, maxWidth: 300, maxHeight: 500, resizable: false, frame: false, show: false, alwaysOnTop: true, skipTaskbar: true, parent: win, backgroundColor: '#101010', icon: icon(), webPreferences: { contextIsolation: true, nodeIntegration: false, preload: path.join(__dirname, 'components/mini-player/preload.js') } });
   playerWin.setAlwaysOnTop(true, 'floating'); playerWin.loadFile(path.join(__dirname, 'components/mini-player/index.html'));
-  playerWin.webContents.openDevTools(); // Открыть DevTools для мини-плеера
+  //playerWin.webContents.openDevTools(); // Открыть DevTools для мини-плеера
   playerWin.on('close', (event) => { if (!isQuitting) { event.preventDefault(); playerWin.hide(); } });
   playerWin.on('show', refreshTray); playerWin.on('hide', refreshTray); return playerWin;
 }
