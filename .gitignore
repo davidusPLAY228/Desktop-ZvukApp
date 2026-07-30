@@ -5,6 +5,9 @@
 **/*code.bat*
 **/*.bat
 *.bat
+claudecode.bat
+.claude/
+.codex/
 
 dist
 

@@ -27,11 +27,7 @@
     "linux": {
       "target": ["AppImage", "deb", "rpm"],
       "icon": "assets/icons/music-player.png",
-      "packageCategory": "AudioVideo",
-      "license": "ISC",
-      "maintainer": "Hachiba9020 <davidusPLAY@yandex.ru>",
-      "desktopName": "zvukapp.desktop",
-      "syncDesktopName": true
+      "category": "AudioVideo"
     }
   },
   "author": {
