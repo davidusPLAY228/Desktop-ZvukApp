@@ -4,4 +4,5 @@ contextBridge.exposeInMainWorld('zvukApp', {
   onPollNow(callback) { const listener = () => callback(); ipcRenderer.on('zvuk:poll-now', listener); return () => ipcRenderer.removeListener('zvuk:poll-now', listener); },
   sendState(state) { ipcRenderer.send('zvuk:state', state); },
   reportDebug(data) { ipcRenderer.send('zvuk:debug', data); },
+  cacheCover(coverUrl) { return ipcRenderer.invoke('cover:cache', coverUrl); },
 });

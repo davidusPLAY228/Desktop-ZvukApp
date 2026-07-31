@@ -1,11 +1,72 @@
-const { app, BrowserWindow, Menu, Tray, ipcMain, globalShortcut } = require('electron');
+const { app, BrowserWindow, Menu, Tray, ipcMain, globalShortcut, net } = require('electron');
 const { updateElectronApp } = require('update-electron-app');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 if (require('electron-squirrel-startup')) app.quit();
 updateElectronApp();
 let win, playerWin, tray, isQuitting = false;
 const icon = () => fs.existsSync(path.join(__dirname, 'assets/icons/music-player.ico')) ? path.join(__dirname, 'assets/icons/music-player.ico') : path.join(__dirname, 'music-player.ico');
+const COVERS_DIR = path.join(app.getPath('userData'), 'covers');
+const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 дней
+function ensureCoversDir() {
+  if (!fs.existsSync(COVERS_DIR)) {
+    fs.mkdirSync(COVERS_DIR, { recursive: true });
+  }
+}
+
+function cleanOldCovers() {
+  try {
+    ensureCoversDir();
+    const now = Date.now();
+    const files = fs.readdirSync(COVERS_DIR);
+    let removed = 0;
+    files.forEach((file) => {
+      const filePath = path.join(COVERS_DIR, file);
+      const stats = fs.statSync(filePath);
+      if (now - stats.mtimeMs > CACHE_MAX_AGE_MS) {
+        fs.unlinkSync(filePath);
+        removed++;
+      }
+    });
+    if (removed > 0) console.log(`[Cover cache] Удалено старых обложек: ${removed}`);
+  } catch (error) {
+    console.error('[Cover cache] Ошибка очистки:', error);
+  }
+}
+
+async function cacheCover(coverUrl) {
+  if (!coverUrl || !coverUrl.startsWith('http')) {
+    return null;
+  }
+
+  try {
+    ensureCoversDir();
+    const hash = crypto.createHash('sha256').update(coverUrl).digest('hex').slice(0, 16);
+    const ext = path.extname(new URL(coverUrl).pathname) || '.jpg';
+    const filename = `${hash}${ext}`;
+    const filePath = path.join(COVERS_DIR, filename);
+
+    if (fs.existsSync(filePath)) {
+      return `file://${filePath.replace(/\\/g, '/')}`;
+    }
+
+    const response = await net.fetch(coverUrl);
+    if (!response.ok) {
+      console.error('[Cover cache] Ошибка загрузки:', response.status);
+      return null;
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    fs.writeFileSync(filePath, buffer);
+    console.log('[Cover cache] Кэшировано:', filename);
+    return `file://${filePath.replace(/\\/g, '/')}`;
+  } catch (error) {
+    console.error('[Cover cache] Ошибка кэширования:', error);
+    return null;
+  }
+}
+
 function showMain() { if (!win) return; if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
 function refreshTray() { tray?.setContextMenu(Menu.buildFromTemplate([{ label: 'Открыть окно', click: showMain }, { label: playerWin?.isVisible() ? 'Скрыть мини-плеер' : 'Показать мини-плеер', click: togglePlayer }, { type: 'separator' }, { label: 'Выход', click: () => { isQuitting = true; app.quit(); } }])); }
 function createTray() { if (tray) return; tray = new Tray(icon()); tray.setToolTip('ZvukApp'); tray.on('click', showMain); refreshTray(); }
@@ -33,7 +94,7 @@ function togglePlayer() {
   }
   refreshTray();
 }
-const PLAYER_COMMANDS = new Set(['play', 'pause', 'toggle', 'next', 'prev', 'seek', 'volume', 'shuffle', 'repeat', 'hifi']);
+const PLAYER_COMMANDS = new Set(['play', 'pause', 'toggle', 'next', 'prev', 'seek', 'volume', 'volume-up', 'volume-down', 'mute', 'shuffle', 'repeat', 'hifi']);
 let lastPlayerState = null;
 
 function sendToMain(command, value) {
@@ -72,17 +133,24 @@ ipcMain.on('zvuk:debug', (_event, data) => {
   console.log('[Zvuk bridge]', data);
   if (playerWin && !playerWin.isDestroyed()) playerWin.webContents.send('player:debug', data);
 });
+
+ipcMain.handle('cover:cache', async (_event, coverUrl) => {
+  return await cacheCover(coverUrl);
+});
 function registerShortcuts() {
   const shortcuts = [
     ['MediaPlayPause', () => sendToMain('toggle')],
     ['MediaNextTrack', () => sendToMain('next')],
     ['MediaPreviousTrack', () => sendToMain('prev')],
     ['CommandOrControl+Alt+P', togglePlayer],
+    ['CommandOrControl+Alt+Up', () => sendToMain('volume-up')],
+    ['CommandOrControl+Alt+Down', () => sendToMain('volume-down')],
+    ['CommandOrControl+Alt+M', () => sendToMain('mute')],
   ];
   shortcuts.forEach(([key, handler]) => {
     if (!globalShortcut.register(key, handler)) console.error('[Hotkey] Не зарегистрирована:', key);
   });
 }
-app.whenReady().then(() => { createWindow(); registerShortcuts(); app.on('activate', showMain); });
+app.whenReady().then(() => { cleanOldCovers(); createWindow(); registerShortcuts(); app.on('activate', showMain); });
 app.on('before-quit', () => { isQuitting = true; globalShortcut.unregisterAll(); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin' && isQuitting) app.quit(); });

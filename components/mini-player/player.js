@@ -32,9 +32,21 @@ let localPosition = 0;
 let localDuration = 0;
 let isLocalPlaying = false;
 let lastServerUpdate = 0;
+let seekDebounce = null;
+let volDebounce = null;
 
 const time = (seconds) => `${Math.floor((seconds || 0) / 60)}:${String(Math.floor((seconds || 0) % 60)).padStart(2, '0')}`;
 const send = (command, value) => window.miniPlayer.command(command, value);
+
+// Переключение SVG-иконки громкости (не трогает детей кнопки, в отличие от textContent)
+function updateMuteIcon(volume) {
+  const waves = document.getElementById('volume-waves');
+  const muteX = document.getElementById('volume-mute-x');
+  if (!waves || !muteX) return;
+  const muted = Number(volume) <= 0;
+  waves.style.display = muted ? 'none' : 'block';
+  muteX.style.display = muted ? 'block' : 'none';
+}
 
 function updateLocalTime() {
   if (!dragging && isLocalPlaying && localDuration > 0) {
@@ -107,14 +119,22 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 els.volume.oninput = () => {
   lastVolume = Number(els.volume.value) || lastVolume;
+  updateMuteIcon(Number(els.volume.value));
+  if (volDebounce) return;
+  volDebounce = setTimeout(() => { volDebounce = null; }, 50);
   send('volume', Number(els.volume.value));
-  els.mute.textContent = Number(els.volume.value) ? '🔊' : '🔇';
 };
 els.mute.onclick = () => {
   els.volume.value = Number(els.volume.value) ? 0 : lastVolume;
   els.volume.dispatchEvent(new Event('input'));
 };
 els.seek.onpointerdown = () => { dragging = true; };
+els.seek.oninput = () => {
+  if (!dragging) return;
+  if (seekDebounce) return;
+  seekDebounce = setTimeout(() => { seekDebounce = null; }, 100);
+  send('seek', Number(els.seek.value));
+};
 els.seek.onpointerup = () => { dragging = false; send('seek', Number(els.seek.value)); };
 els.retry.onclick = () => { setBusy(true); send('play'); window.miniPlayer.requestState(); };
 
@@ -214,7 +234,19 @@ window.miniPlayer.onState((state) => {
   els.title.textContent = state.title || 'Нет трека';
   els.artist.textContent = state.artist || '—';
   els.play.dataset.playing = String(!!state.isPlaying);
-  els.play.textContent = state.isPlaying ? 'Ⅱ' : '▶';
+
+  // Управление SVG иконками play/pause
+  const playIcon = document.getElementById('play-icon');
+  const pauseIcon = document.getElementById('pause-icon');
+  if (playIcon && pauseIcon) {
+    if (state.isPlaying) {
+      playIcon.style.display = 'none';
+      pauseIcon.style.display = 'block';
+    } else {
+      playIcon.style.display = 'block';
+      pauseIcon.style.display = 'none';
+    }
+  }
 
   if (state.coverUrl) {
     els.cover.src = state.coverUrl;
@@ -236,28 +268,26 @@ window.miniPlayer.onState((state) => {
 
   if (Number.isFinite(state.volume)) {
     els.volume.value = state.volume;
-    els.mute.textContent = state.volume ? '🔊' : '🔇';
+    updateMuteIcon(state.volume);
   }
 
+  // Управление shuffle с активным состоянием
   els.shuffle.classList.toggle('active', !!state.isShuffle);
 
-  // Управление SVG иконками повтора
-  const repeatOff = document.getElementById('repeat-off');
-  const repeatAll = document.getElementById('repeat-all');
-  const repeatOne = document.getElementById('repeat-one');
-
-  if (repeatOff && repeatAll && repeatOne) {
-    repeatOff.style.display = 'none';
-    repeatAll.style.display = 'none';
-    repeatOne.style.display = 'none';
-
-    if (state.repeatMode === 'one') {
-      repeatOne.style.display = 'block';
-    } else if (state.repeatMode === 'all') {
-      repeatAll.style.display = 'block';
-    } else {
-      repeatOff.style.display = 'block';
-    }
+  // Управление repeat с цветом и badge
+  const repeatOneBadge = document.getElementById('repeat-one-badge');
+  if (state.repeatMode === 'one') {
+    els.repeat.classList.add('active');
+    els.repeat.style.color = '#ff8126';
+    if (repeatOneBadge) repeatOneBadge.style.display = 'block';
+  } else if (state.repeatMode === 'all') {
+    els.repeat.classList.add('active');
+    els.repeat.style.color = '#9ee84a';
+    if (repeatOneBadge) repeatOneBadge.style.display = 'none';
+  } else {
+    els.repeat.classList.remove('active');
+    els.repeat.style.color = '';
+    if (repeatOneBadge) repeatOneBadge.style.display = 'none';
   }
 
   const hifiBtn = document.querySelector('.hifi, .hifi-active');

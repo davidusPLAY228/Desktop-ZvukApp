@@ -88,6 +88,9 @@ function buildZvukGuestScript(command, value) {
         _trackChangeAt: 0,
         _lastTitle: '',
         _seekAt: 0,
+        _lastVolume: 70,
+        _localShuffle: false,
+        _localRepeatMode: 'off',
       };
     }
     const S = window.__zvuk;
@@ -304,15 +307,60 @@ function buildZvukGuestScript(command, value) {
 
     // --- Shuffle / Repeat / HiFi ---
     const btn = (sel) => (q(sel) || dq(sel))?.closest('button');
-    const isActive = (b) =>
-      b && (/active/i.test(b.className) || b.getAttribute('aria-pressed') === 'true');
-    state.isShuffle = isActive(btn('[class*="shuffle"]'));
+    // Детекция активного состояния кнопки-переключателя.
+    // Возвращает: true / false / null (не удалось определить).
+    // На zvuk.com активное состояние обозначено видимым span styles_activeIcon__...
+    // (он всегда в DOM, но скрыт через opacity/display/scale, когда выключен).
+    const isActive = (b) => {
+      if (!b) return null;
+      // 1. Модификатор "active" в классе кнопки (например HiFi: ...Active__NjZqr)
+      const cls = typeof b.className === 'string' ? b.className : '';
+      if (/active/i.test(cls)) return true;
+      // 2. ARIA/data-атрибуты переключателя
+      const attr = (n) => b.getAttribute(n);
+      if (attr('aria-pressed') === 'true' || attr('aria-pressed') === '') return true;
+      if (attr('aria-checked') === 'true' || attr('aria-checked') === '') return true;
+      if (attr('data-active') === 'true' || attr('data-active') === '') return true;
+      // 3. Видимый индикатор активного состояния среди вложенных элементов
+      let hasIndicator = false;
+      for (const el of b.querySelectorAll('[class*="active" i]')) {
+        hasIndicator = true;
+        try {
+          const cs = getComputedStyle(el);
+          if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+          if (parseFloat(cs.opacity) <= 0.01) continue;
+          const t = (cs.transform || '').toLowerCase();
+          if (/scale\\(\\s*0[\\s,\\)]|scale[xy]\\(\\s*0[\\s,\\)]/.test(t)) continue;
+          if (parseFloat(cs.width) <= 1 && parseFloat(cs.height) <= 1) continue;
+          return true;
+        } catch (_e) { continue; }
+      }
+      return hasIndicator ? false : null;
+    };
+    const shuffleBtn = btn('[class*="shuffle"]');
+    const repeatBtn = btn('[class*="repeat"]');
+    const domShuffle = isActive(shuffleBtn);
+    const domRepeat = isActive(repeatBtn);
+    // DOM-детекция приоритетнее, иначе используем локальный трекинг (по кликам)
+    state.isShuffle = domShuffle === null ? S._localShuffle : domShuffle;
     state.repeatMode = (() => {
-      const r = btn('[class*="repeat"]');
-      if (!r || !isActive(r)) return 'off';
-      return r.querySelectorAll('svg path').length === 2 ? 'one' : 'all';
+      if (domRepeat === null) return S._localRepeatMode;
+      if (domRepeat === false) return 'off';
+      // Repeat включён: пробуем отличить "one" от "all"
+      const info = ((repeatBtn && (repeatBtn.getAttribute('aria-label') || repeatBtn.getAttribute('title'))) || '').toLowerCase();
+      if (/one|повтор(ить)? ?(1|од)|повторить ?трек/i.test(info)) return 'one';
+      const badge = repeatBtn && [...repeatBtn.querySelectorAll('text, [class*="badge" i]')].find((el) => (el.textContent || '').trim() === '1');
+      if (badge) return 'one';
+      return S._localRepeatMode === 'one' ? 'one' : 'all';
     })();
-    state.isHiFi = isActive(btn('[class*="HiFi"], [class*="hiFi"]'));
+    // HiFi: активное состояние определяется классом кнопки (HifiButton_hiFiButtonActive__NjZqr).
+    // Шаг 3 isActive() не используем — внутри кнопки есть статичные HifiButton_effectActive__...
+    // spans, которые не являются надёжным индикатором.
+    const hifiBtnEl = btn('[class*="HiFi"], [class*="hiFi"]');
+    state.isHiFi =
+      !!hifiBtnEl && /active/i.test(typeof hifiBtnEl.className === 'string' ? hifiBtnEl.className : '');
+    state._debug.shuffle = { dom: domShuffle, local: S._localShuffle };
+    state._debug.repeat = { dom: domRepeat, local: S._localRepeatMode };
     state.authenticated = Boolean(
       state.title || msMeta?.title || document.cookie.includes('auth')
     );
@@ -475,8 +523,38 @@ function buildZvukGuestScript(command, value) {
       case 'next': return reactClick(buttons[2]);
       case 'seek': return pointerAt(progressBar, VAL);
       case 'volume': return pointerAt(vs, VAL);
-      case 'shuffle': return reactClick(btn('[class*="shuffle"]'));
-      case 'repeat': return reactClick(btn('[class*="repeat"]'));
+      case 'volume-up': {
+        if (!vs) throw new Error('zvuk-slider-not-found');
+        const current = Number(vs.getAttribute('aria-valuenow')) || 0;
+        const newVol = Math.min(100, current + 10);
+        return pointerAt(vs, newVol);
+      }
+      case 'volume-down': {
+        if (!vs) throw new Error('zvuk-slider-not-found');
+        const current = Number(vs.getAttribute('aria-valuenow')) || 0;
+        const newVol = Math.max(0, current - 10);
+        return pointerAt(vs, newVol);
+      }
+      case 'mute': {
+        if (!vs) throw new Error('zvuk-slider-not-found');
+        const current = Number(vs.getAttribute('aria-valuenow')) || 0;
+        if (!S._lastVolume) S._lastVolume = 70;
+        if (current > 0) {
+          S._lastVolume = current;
+          return pointerAt(vs, 0);
+        } else {
+          return pointerAt(vs, S._lastVolume);
+        }
+      }
+      case 'shuffle':
+        S._localShuffle = !S._localShuffle;
+        return reactClick(btn('[class*="shuffle"]'));
+      case 'repeat': {
+        // Цикл повторения на сайте: off → all → one → off
+        S._localRepeatMode =
+          S._localRepeatMode === 'off' ? 'all' : S._localRepeatMode === 'all' ? 'one' : 'off';
+        return reactClick(btn('[class*="repeat"]'));
+      }
       case 'hifi': return reactClick(btn('[class*="HiFi"], [class*="hiFi"]'));
       default: throw new Error('zvuk-unknown-' + CMD);
     }

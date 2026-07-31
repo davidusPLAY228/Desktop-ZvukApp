@@ -5,6 +5,7 @@ const [btnBack, btnForward, btnReload, btnHome, btnNewTab, urlBar, tabsContainer
 let tabs = [], activeTabId = null, tabId = 0;
 let playerTabId = null;
 let pollTimer = null;
+let coverCache = { original: null, cached: null };
 
 const currentTab = () => tabs.find((tab) => tab.id === activeTabId);
 const zvukTabs = () => tabs.filter((tab) => {
@@ -181,6 +182,29 @@ async function poll() {
     }
     console.log('[Zvuk bridge] poll: player found', { hasPlayer: found.state.hasPlayer, title: found.state.title });
     console.log('[Zvuk bridge] FULL STATE:', JSON.stringify(found.state, null, 2));
+
+    // Кэширование обложки: кэш привязывается к конкретному оригинальному URL.
+    // Если кэширование не удалось — используем CDN-URL напрямую, чтобы не
+    // подставлять чужую (старую) обложку для нового трека.
+    if (found.state.coverUrl) {
+      if (found.state.coverUrl !== coverCache.original) {
+        coverCache.original = found.state.coverUrl;
+        coverCache.cached = null; // сбрасываем до успешного кэширования
+        try {
+          const cachedPath = await window.zvukApp.cacheCover(found.state.coverUrl);
+          if (cachedPath) {
+            coverCache.cached = cachedPath;
+            console.log('[Cover cache] Кэшировано:', cachedPath);
+            found.state.coverUrl = cachedPath;
+          }
+        } catch (error) {
+          console.error('[Cover cache] Ошибка кэширования, используется CDN:', error);
+        }
+      } else if (coverCache.cached) {
+        found.state.coverUrl = coverCache.cached;
+      }
+    }
+
     sendState(found.state);
   } catch (error) {
     console.error('[Zvuk bridge] poll error:', error);
