@@ -23,13 +23,17 @@
   "build": {
     "appId": "com.Hachiba9020.ZvukApp",
     "productName": "ZvukApp",
-    "desktopName": "ZvukApp",
-    "syncDesktopName": true,
     "copyright": "Copyright © 2026 Hachiba9020",
     "linux": {
       "target": ["AppImage", "deb", "rpm"],
       "icon": "assets/icons/music-player.png",
-      "category": "AudioVideo"
+      "category": "AudioVideo",
+      "desktop": {
+        "Name": "ZvukApp",
+        "GenericName": "Music Player",
+        "Comment": "Desktop app to listen music from zvuk.com",
+        "Categories": "AudioVideo;Audio;Player;"
+      }
     }
   },
   "author": {
