@@ -94,7 +94,7 @@ function togglePlayer() {
   }
   refreshTray();
 }
-const PLAYER_COMMANDS = new Set(['play', 'pause', 'toggle', 'next', 'prev', 'seek', 'volume', 'volume-up', 'volume-down', 'mute', 'shuffle', 'repeat', 'hifi']);
+const PLAYER_COMMANDS = new Set(['play', 'pause', 'toggle', 'next', 'prev', 'seek', 'volume', 'volume-up', 'volume-down', 'mute', 'shuffle', 'repeat', 'hifi', 'favorite']);
 let lastPlayerState = null;
 
 function sendToMain(command, value) {

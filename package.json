@@ -1,6 +1,6 @@
 {
   "name": "ZvukApp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Desktop app to listen music from zvuk.com",
   "main": "main.js",
   "repository": {
@@ -23,6 +23,8 @@
   "build": {
     "appId": "com.Hachiba9020.ZvukApp",
     "productName": "ZvukApp",
+    "desktopName": "ZvukApp",
+    "syncDesktopName": true,
     "copyright": "Copyright © 2026 Hachiba9020",
     "linux": {
       "target": ["AppImage", "deb", "rpm"],

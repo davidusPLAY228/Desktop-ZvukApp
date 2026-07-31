@@ -12,6 +12,8 @@ claudecode.bat
 /.codex
 dist
 
+*test*
+
 # Logs
 logs
 *.log

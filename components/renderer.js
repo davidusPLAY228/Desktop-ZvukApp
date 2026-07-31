@@ -93,6 +93,9 @@ function addTab(url = HOME_URL, select = true) {
     if (tab.ready) poll();
   });
   webview.addEventListener('new-window', (event) => { event.preventDefault(); if (event.url) addTab(event.url, true); });
+  webview.addEventListener('console-message', (event) => {
+    console.log('[Webview]', event.message);
+  });
 
   if (select) activate(id);
 }
@@ -131,14 +134,25 @@ async function inspectTab(tab) {
   try {
     const url = tab.webview.getURL();
     console.log('[Zvuk bridge] inspecting tab', tab.id, url);
-    const state = await tab.webview.executeJavaScript(buildZvukGuestScript(null), true);
+    const script = buildZvukGuestScript(null);
+    console.log('[Zvuk bridge] generated script (first 500 chars):', script.substring(0, 500));
+    const state = await tab.webview.executeJavaScript(script, true);
     console.log('[Zvuk bridge] state from tab', tab.id, {
       available: state.available,
       hasPlayer: state.hasPlayer,
       title: state.title,
       artist: state.artist,
       isPlaying: state.isPlaying,
-      debug: state._debug
+      isFavorite: state.isFavorite,
+      debug: state._debug,
+      favoriteDebug: {
+        reveal: state._debug.favoriteReveal,
+        outlineHidden: state._debug.favoriteOutlineHidden,
+        fillVisible: state._debug.favoriteFillVisible,
+        ariaPressed: state._debug.favoriteAriaPressed,
+        activeClass: state._debug.favoriteActiveClass,
+        fullDebug: state._debug.favorite
+      }
     });
     return { tab, state };
   } catch (error) {

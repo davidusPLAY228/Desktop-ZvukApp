@@ -13,6 +13,7 @@ const els = Object.fromEntries(
     "play",
     "prev",
     "next",
+    "favorite",
     "volume",
     "mute",
     "shuffle",
@@ -93,6 +94,7 @@ function setBusy(isBusy) {
   els.play.disabled = isBusy;
   els.prev.disabled = isBusy;
   els.next.disabled = isBusy;
+  els.favorite.disabled = isBusy;
 }
 
 function markFresh() {
@@ -111,6 +113,21 @@ els.close.onclick = () => window.miniPlayer.close();
 els.play.onclick = () => { setBusy(true); send('toggle'); };
 els.prev.onclick = () => { setBusy(true); send('prev'); };
 els.next.onclick = () => { setBusy(true); send('next'); };
+els.favorite.onclick = () => {
+  const willFavorite = !els.favorite.classList.contains('active');
+  setBusy(true);
+  els.favorite.classList.remove('pulse', 'unfavorite');
+  void els.favorite.offsetWidth;
+  if (willFavorite) {
+    els.favorite.classList.add('pulse');
+  } else {
+    els.favorite.classList.add('unfavorite');
+  }
+  send('favorite');
+};
+els.favorite.addEventListener('animationend', () => {
+  els.favorite.classList.remove('pulse', 'unfavorite');
+});
 els.shuffle.onclick = () => send('shuffle');
 els.repeat.onclick = () => send('repeat');
 document.addEventListener('DOMContentLoaded', () => {
@@ -273,6 +290,10 @@ window.miniPlayer.onState((state) => {
 
   // Управление shuffle с активным состоянием
   els.shuffle.classList.toggle('active', !!state.isShuffle);
+
+  // Управление favorite (сердечко) с активным состоянием
+  els.favorite.classList.toggle('active', !!state.isFavorite);
+  els.favorite.disabled = !state.title;
 
   // Управление repeat с цветом и badge
   const repeatOneBadge = document.getElementById('repeat-one-badge');

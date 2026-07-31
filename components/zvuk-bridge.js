@@ -32,6 +32,7 @@ function buildZvukGuestScript(command, value) {
       volume: null,
       isShuffle: false,
       isHiFi: false,
+      isFavorite: false,
       repeatMode: 'off',
       error: null,
       _debug: {},
@@ -348,7 +349,7 @@ function buildZvukGuestScript(command, value) {
       if (domRepeat === false) return 'off';
       // Repeat включён: пробуем отличить "one" от "all"
       const info = ((repeatBtn && (repeatBtn.getAttribute('aria-label') || repeatBtn.getAttribute('title'))) || '').toLowerCase();
-      if (/one|повтор(ить)? ?(1|од)|повторить ?трек/i.test(info)) return 'one';
+      if (/one|повтор(ить)?\\s?(1|од)|повторить\\s?трек/i.test(info)) return 'one';
       const badge = repeatBtn && [...repeatBtn.querySelectorAll('text, [class*="badge" i]')].find((el) => (el.textContent || '').trim() === '1');
       if (badge) return 'one';
       return S._localRepeatMode === 'one' ? 'one' : 'all';
@@ -361,6 +362,99 @@ function buildZvukGuestScript(command, value) {
       !!hifiBtnEl && /active/i.test(typeof hifiBtnEl.className === 'string' ? hifiBtnEl.className : '');
     state._debug.shuffle = { dom: domShuffle, local: S._localShuffle };
     state._debug.repeat = { dom: domRepeat, local: S._localRepeatMode };
+
+// --- Favorite (добавлено в «Моё») ---
+    // Кнопка сердечка: styles_btnAdd__rfLwp / AnimatedAddToCollectionIcon.
+    // Состоит из двух SVG-слоёв: контурного (outline) и заполненного (fillLayer).
+    // Состояние определяется через CSS-переменную --reveal-radius на fillLayer:
+    //   0%  — трек НЕ в избранном (заполненное сердце скрыто);
+    //   100% — трек в избранном (сердце заполнено).
+    const favBtnCandidates = [
+      btn('[class*="btnAdd"], [class*="addToCollection"]'),
+      btn('[class*="favorite"], [class*="heart"]')
+    ].filter(Boolean);
+    const favBtn = favBtnCandidates[0] || null;
+    const fillLayer = favBtn ? favBtn.querySelector('[class*="fillLayer"]') : null;
+    const outline = favBtn ? favBtn.querySelector('[class*="iconHidden"]') : null;
+
+    state.isFavorite = (() => {
+      if (!favBtn) return false;
+
+      // 1. Заполненный слой раскрыт (--reveal-radius >= 50%) -> в избранном
+      if (fillLayer) {
+        let reveal = '';
+        try {
+          reveal =
+            (fillLayer.getAttribute('style') || '').match(/--reveal-radius:\\s*([0-9.]+)%/)?.[1] ||
+            getComputedStyle(fillLayer).getPropertyValue('--reveal-radius') || '';
+        } catch (_e) {}
+        const v = parseFloat(reveal);
+        state._debug.favoriteReveal = { reveal, v, matched: Number.isFinite(v) && v >= 50 };
+        // Если --reveal-radius найден и валиден, используем только его
+        // ВАЖНО: логика инвертирована - на zvuk.com 0% = в избранном, 100% = не в избранном
+        if (Number.isFinite(v)) {
+          return v < 50;
+        }
+      }
+
+      // 2. Контурное сердце фактически скрыто -> видно заполненное -> в избранном
+      if (outline) {
+        try {
+          const cs = getComputedStyle(outline);
+          const hidden =
+            cs.display === 'none' ||
+            cs.visibility === 'hidden' ||
+            parseFloat(cs.opacity) <= 0.01;
+          state._debug.favoriteOutlineHidden = hidden;
+          if (hidden) return true;
+        } catch (_e) {}
+      }
+
+      // 3. Заполненный слой видим (clip-path не сжат в точку) -> в избранном
+      if (fillLayer) {
+        try {
+          const cs = getComputedStyle(fillLayer);
+          const visible = cs.display !== 'none' && cs.visibility !== 'hidden' &&
+              parseFloat(cs.opacity) > 0.01 &&
+              !/circle\\(\\s*0(?:%|px)/.test(cs.clipPath || '');
+          state._debug.favoriteFillVisible = visible;
+          if (visible) return true;
+        } catch (_e) {}
+      }
+
+      // 4. Проверка aria-pressed (только если явно true, не пустая строка)
+      const ariaPressed = favBtn.getAttribute('aria-pressed');
+      state._debug.favoriteAriaPressed = ariaPressed;
+      if (ariaPressed === 'true') return true;
+
+      // 5. Класс активности (только точный модификатор, не часть хеша)
+      const cls = typeof favBtn.className === 'string' ? favBtn.className : '';
+      const hasActiveClass = /\\bactive\\b/i.test(cls) || /Active__/i.test(cls);
+      state._debug.favoriteActiveClass = { cls, hasActiveClass };
+      if (hasActiveClass) return true;
+
+      return false;
+    })();
+    // Compute revealRadius for debug
+    let revealRadius = '';
+    if (fillLayer) {
+      try {
+        revealRadius =
+          (fillLayer.getAttribute('style') || '').match(/--reveal-radius:\\s*([0-9.]+)%/)?.[1] ||
+          getComputedStyle(fillLayer).getPropertyValue('--reveal-radius') || '';
+      } catch (_e) {}
+    }
+    const ariaPressed = favBtn ? favBtn.getAttribute('aria-pressed') : null;
+    state._debug.favorite = { 
+      found: !!favBtn, 
+      btnClass: favBtn?.className || null,
+      fillLayer: fillLayer ? fillLayer.className : null,
+      outline: outline ? outline.className : null,
+      fillLayerStyle: fillLayer ? fillLayer.getAttribute('style') : null,
+      revealRadius: revealRadius,
+      ariaPressed: ariaPressed,
+    };
+
     state.authenticated = Boolean(
       state.title || msMeta?.title || document.cookie.includes('auth')
     );
@@ -556,6 +650,11 @@ function buildZvukGuestScript(command, value) {
         return reactClick(btn('[class*="repeat"]'));
       }
       case 'hifi': return reactClick(btn('[class*="HiFi"], [class*="hiFi"]'));
+      case 'favorite':
+        return reactClick(
+          btn('[class*="btnAdd"], [class*="addToCollection"]') ||
+          btn('[class*="favorite"], [class*="heart"]')
+        );
       default: throw new Error('zvuk-unknown-' + CMD);
     }
   })()`;
