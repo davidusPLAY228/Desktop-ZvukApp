@@ -97,14 +97,19 @@ function setBusy(isBusy) {
   els.favorite.disabled = isBusy;
 }
 
+let lastValidState = null;
+
 function markFresh() {
   lastUpdate = Date.now();
   if (staleTimer) clearTimeout(staleTimer);
   staleTimer = setTimeout(() => {
     if (Date.now() - lastUpdate >= 4500) {
-      els.notice.hidden = false;
-      els.notice.textContent = 'Нет связи с zvuk.com. Проверьте вкладку и воспроизведение.';
-      els.retry.hidden = false;
+      // Показываем ошибку только если нет валидного состояния
+      if (!lastValidState || !lastValidState.title || !lastValidState.hasPlayer) {
+        els.notice.hidden = false;
+        els.notice.textContent = 'Нет связи с zvuk.com. Проверьте вкладку и воспроизведение.';
+        els.retry.hidden = false;
+      }
     }
   }, 4500);
 }
@@ -158,6 +163,11 @@ els.retry.onclick = () => { setBusy(true); send('play'); window.miniPlayer.reque
 window.miniPlayer.onState((state) => {
   markFresh();
   setBusy(false);
+
+  // Сохраняем последнее валидное состояние
+  if (state.available && state.hasPlayer && state.title) {
+    lastValidState = state;
+  }
 
   console.log('[Timeline] State received:', {
     position: state.position,
@@ -236,9 +246,11 @@ window.miniPlayer.onState((state) => {
   const noSite = state.available === false;
   const noPlayer = state.available && !state.hasPlayer && !state.title;
   const needAuth = state.available && !state.authenticated && !state.title;
+  const hasValidState = state.available && state.hasPlayer && state.title;
   const unavailable = noSite || noPlayer || needAuth;
 
-  els.notice.hidden = !unavailable && !state.error;
+  // Скрываем ошибку, если есть валидное состояние (сайт доступен, плеер работает, трек есть)
+  els.notice.hidden = hasValidState || (!unavailable && !state.error);
   els.retry.hidden = !state.error && !noSite;
 
   if (state.error === 'network') els.notice.textContent = 'Сетевая ошибка. Откройте zvuk.com и повторите.';
